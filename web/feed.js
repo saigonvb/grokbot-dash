@@ -129,16 +129,7 @@ export async function connectFeed({ topic, server, auth }, onState) {
       store.setBotsConfig(cfg);
       return true;
     }
-    if (isMap(rec.routines)) {
-      const name = typeof rec.routines.bot === 'string' ? rec.routines.bot.trim().slice(0, 80) : '';
-      if (!name || !Array.isArray(rec.routines.items)) return false;
-      const items = rec.routines.items.slice(0, 50).filter(isMap).map((r) => ({
-        routine: String(r.name ?? '').slice(0, 80), schedule: String(r.schedule ?? '').slice(0, 80),
-        next_run: Number.isFinite(Date.parse(r.next_run)) ? new Date(r.next_run).toISOString() : null,
-      })).filter((r) => r.routine);
-      routines.set(botIdFor(name), { name, items });      // a bot's latest list replaces its previous one
-      return true;
-    }
+    if (applyRoutineMessage(routines, rec)) return true;
     store.apply({ ...rec, t }, { replay });
     return true;
   }
@@ -154,8 +145,7 @@ export async function connectFeed({ topic, server, auth }, onState) {
       finished.push({ t: typeof rec.t === 'string' ? rec.t : new Date(l.time * 1000).toISOString(), bot: botIdFor(rec.bot), name: rec.bot.slice(0, 80), step: String(rec.step ?? '').slice(0, 80) });
     }
     s.finished = finished;
-    s.routines = [...routines].flatMap(([bot, { name, items }]) => items.map((r) => ({ bot, name, ...r })))
-      .sort((a, b) => (a.next_run ? Date.parse(a.next_run) : Infinity) - (b.next_run ? Date.parse(b.next_run) : Infinity));
+    s.routines = routineRows(routines);
     return s;
   }
   function publish() { store.commit(); onState(extras(store.snapshot())); }
@@ -163,3 +153,21 @@ export async function connectFeed({ topic, server, auth }, onState) {
 }
 
 function isMap(v) { return !!v && typeof v === 'object' && !Array.isArray(v); }
+
+/** One bot's latest list replaces that bot only. Other bots' messages stay. Items may have a schedule and no next_run. */
+export function applyRoutineMessage(routines, rec) {
+  if (!isMap(rec) || !isMap(rec.routines)) return false;
+  const name = typeof rec.routines.bot === 'string' ? rec.routines.bot.trim().slice(0, 80) : '';
+  if (!name || !Array.isArray(rec.routines.items)) return false;
+  const items = rec.routines.items.slice(0, 50).filter(isMap).map((r) => ({
+    routine: String(r.name ?? '').slice(0, 80), schedule: String(r.schedule ?? '').slice(0, 80),
+    next_run: Number.isFinite(Date.parse(r.next_run)) ? new Date(r.next_run).toISOString() : null,
+  })).filter((r) => r.routine);
+  routines.set(botIdFor(name), { name, items });
+  return true;
+}
+
+export function routineRows(routines) {
+  return [...routines].flatMap(([bot, { name, items }]) => items.map((r) => ({ bot, name, ...r })))
+    .sort((a, b) => (a.next_run ? Date.parse(a.next_run) : Infinity) - (b.next_run ? Date.parse(b.next_run) : Infinity));
+}

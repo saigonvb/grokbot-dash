@@ -661,7 +661,7 @@ function dockCard(id, title, opts) {
   const root = h('section', { class: 'bhq-dcard bhq-surface bhq-glow bhq-glow--still', 'aria-label': title, 'data-dock': id },
     head, h('div', { class: 'bhq-dbody' }, inner));
   const card = { id, root, toggle, count, inner, eye, open: false, shown: false, rows: 0 };
-  toggle.addEventListener('click', () => setDockOpen(card, !card.shown));
+  toggle.addEventListener('click', () => setDockOpen(card, !card.shown, true, true));
   return card;
 }
 
@@ -675,9 +675,10 @@ function paintDockCard(card, shown) {
   card.inner.inert = !card.shown;
 }
 
-function setDockOpen(card, on, save = true) {
+function setDockOpen(card, on, save = true, fromUser = false) {
   card.open = !!on;
   const d = U.dock;
+  if (fromUser) d.pinned = on ? card : (d.pinned === card ? null : d.pinned);
   if (card.open) { // most recently opened last
     d.lru = d.lru.filter((c) => c !== card);
     d.lru.push(card);
@@ -687,19 +688,23 @@ function setDockOpen(card, on, save = true) {
     for (const k of ['waiting', 'finished', 'routines']) o[k] = !!d[k].open;
     lsSet(LS_DOCK, JSON.stringify(o));
   }
-  fitDock(d.avail == null ? Infinity : d.avail);
+  if (fromUser) layoutDock();
+  else fitDock(d.avail == null ? Infinity : d.avail);
 }
 
 // If the open cards do not all fit between the floors and the feed, the least recently opened ones stay folded.
+// A card the person just clicked stays open: a tall floors list must not swallow that click.
 function fitDock(avail) {
   const d = U.dock;
   d.avail = avail;
   const cards = [d.waiting, d.finished, d.routines];
   const live = cards.filter((c) => !c.root.hidden);
+  const pin = d.pinned && live.includes(d.pinned) && d.pinned.open ? d.pinned : null;
   const on = new Set(live.filter((c) => c.open));
   const need = () => live.reduce((n, c) => n + (on.has(c) ? (c.rows ? DOCK_OPEN_MIN : DOCK_OPEN_EMPTY) : DOCK_HEAD), 0) + DOCK_GAP * Math.max(0, live.length - 1);
   while (on.size && need() > avail) {
-    const victim = d.lru.find((c) => on.has(c)) || [...on][0]; // lru is oldest first
+    const victim = d.lru.find((c) => on.has(c) && c !== pin);
+    if (!victim) break;
     on.delete(victim);
   }
   for (const c of cards) paintDockCard(c, on.has(c));
@@ -739,7 +744,7 @@ function buildDock(floors, feed) {
 
   U.dock = {
     root, waiting, finished, routines, wlist, wempty, tl, fempty, rl, rempty,
-    lru: [], wrows: new Map(), finSig: null, finRefs: [], routSig: null, routRefs: [], copied: new Map(), blurred: false,
+    lru: [], pinned: null, wrows: new Map(), finSig: null, finRefs: [], routSig: null, routRefs: [], copied: new Map(), blurred: false,
     floors, feed,
   };
 
@@ -772,10 +777,14 @@ function layoutDock() {
   const gutter = 24;
   // offsetTop/offsetHeight ignore the cards' entrance transform
   const top = shown(d.floors) ? d.floors.offsetTop + d.floors.offsetHeight + 10 : 96;
-  const bottom = shown(d.feed) ? d.feed.offsetTop - 10 : innerHeight - gutter;
+  const aboveFeed = shown(d.feed) ? d.feed.offsetTop - 10 : innerHeight - gutter;
+  // A click may use the room down to the screen edge. The gap above the activity feed is often
+  // only the three headers, which is why an open Routines card was folded again at once.
+  const bottom = d.pinned ? Math.max(aboveFeed, innerHeight - gutter) : aboveFeed;
   const avail = Math.max(0, bottom - top);
   setPx(d.root, 'top', top);
   setPx(d.root, 'maxHeight', avail);
+  d.root.style.zIndex = d.pinned ? '21' : '';
   fitDock(avail);
   updateFades();
 }
@@ -1666,7 +1675,9 @@ function renderRoutines(state) {
     });
   }
   for (const ref of d.routRefs) {
-    setText(ref.next, ref.t == null ? 'no date' : relIn(ref.t));
+    // No next_run: the schedule line is the whole timing. Don't invent a date.
+    setHidden(ref.next, ref.t == null);
+    setText(ref.next, ref.t == null ? '' : relIn(ref.t));
     setAttr(ref.next, 'title', ref.t == null ? null : fullLocal(ref.t));
   }
 }
