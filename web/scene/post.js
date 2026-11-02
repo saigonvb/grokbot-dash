@@ -43,10 +43,12 @@ export function tiltShiftEnabled() {
   return new URLSearchParams(location.search).get('tiltshift') !== '0';
 }
 
-export function createPost(renderer, scene, camera) {
+export function createPost(renderer, scene, camera, opts = {}) {
   const size = renderer.getSize(new THREE.Vector2());
   const pr = renderer.getPixelRatio();
-  const rt = new THREE.WebGLRenderTarget(size.x * pr, size.y * pr, { type: THREE.HalfFloatType, samples: 4 });
+  // 2× MSAA instead of 4×: the tilt-shift already softens edges. Low power skips MSAA.
+  const samples = opts.samples == null ? 2 : opts.samples;
+  const rt = new THREE.WebGLRenderTarget(size.x * pr, size.y * pr, { type: THREE.HalfFloatType, samples });
   const composer = new EffectComposer(renderer, rt);
   composer.setPixelRatio(pr);
   // MSAA only where the scene is drawn: the ping-pong partner is a plain half-float target (saves ~25% VRAM)
@@ -57,11 +59,12 @@ export function createPost(renderer, scene, camera) {
   composer.addPass(new RenderPass(scene, camera));
   const h = new ShaderPass(TiltShiftShader);
   const v = new ShaderPass(TiltShiftShader);      // ShaderPass clones the uniforms, so each pass owns its own
-  h.enabled = v.enabled = tiltShiftEnabled();
+  h.enabled = v.enabled = tiltShiftEnabled() && opts.tilt !== false;
   composer.addPass(h);
   composer.addPass(v);
   composer.addPass(new OutputPass());
   const studio = new StudioPass(scene, camera);
+  studio.cheap = !!opts.cheapAura;
   composer.addPass(studio);
 
   const api = {
@@ -75,10 +78,18 @@ export function createPost(renderer, scene, camera) {
       this.base = 1.05 * renderer.getPixelRatio();
       h.uniforms.strength.value = v.uniforms.strength.value = this.base;
     },
+    rebuiltAura: false,
+    setQuality({ tilt, cheapAura }) {
+      h.enabled = v.enabled = tiltShiftEnabled() && tilt !== false;
+      studio.cheap = !!cheapAura;
+      studio.auraReady = false;
+    },
+    setHoldAura(hold) { studio.holdAura = !!hold; },
     render(focusV, dt, intensity = 1) {
       h.uniforms.focus.value = v.uniforms.focus.value = focusV;
       h.uniforms.strength.value = v.uniforms.strength.value = this.base * intensity;
       composer.render(dt);
+      this.rebuiltAura = !!studio.rebuilt;
     },
   };
   api.setSize(size.x, size.y);

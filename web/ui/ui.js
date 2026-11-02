@@ -635,10 +635,20 @@ function buildZoom() {
     b.addEventListener('click', () => { if (U.h.onZoom) U.h.onZoom(dir); });
     return b;
   };
+  const power = h('button', {
+    class: 'bhq-zbtn z-power', type: 'button',
+    'aria-pressed': window.bothq?.power?.low ? 'true' : 'false',
+    'aria-label': 'Light mode, lower GPU use',
+    title: 'Light mode, lower GPU use. Also #…&lowpower=1',
+    text: 'Eco',
+  });
+  power.addEventListener('click', () => { if (window.bothq?.setLowPower) window.bothq.setLowPower(power.getAttribute('aria-pressed') !== 'true'); });
   const root = own(h('div', { class: 'bhq-zoom bhq-surface', role: 'group', 'aria-label': 'Scene zoom' },
     mk('z-out', ICON.minus, 'Zoom out', 'out'),
     h('span', { class: 'bhq-sep', 'aria-hidden': 'true' }),
-    mk('z-in', ICON.plus, 'Zoom in', 'in')));
+    mk('z-in', ICON.plus, 'Zoom in', 'in'),
+    h('span', { class: 'bhq-sep', 'aria-hidden': 'true' }),
+    power));
   document.body.append(root);
   U.zoom = { root };
 }

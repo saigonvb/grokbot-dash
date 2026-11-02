@@ -99,6 +99,10 @@ export class StudioPass extends Pass {
     super();
     this.scene = scene;
     this.camera = camera;
+    this.holdAura = false;
+    this.auraReady = false;
+    this.cheap = false;
+    this.rebuilt = false;
     this.needsSwap = true;
     this.maskMat = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false, side: THREE.DoubleSide, depthTest: false, depthWrite: false, fog: false });
     this.blurMat = new THREE.ShaderMaterial({ uniforms: { tMap: { value: null }, texel: { value: new THREE.Vector2() }, sigma: { value: 0 } }, vertexShader: QUAD_VS, fragmentShader: BLUR_FS, depthTest: false, depthWrite: false });
@@ -129,6 +133,7 @@ export class StudioPass extends Pass {
     if (t) Object.values(t).forEach((x) => x.dispose());
     const at = (k) => target(Math.round(w / k), Math.round(h / k));
     this.t = { mask: at(4), cA: at(4), cB: at(4), mA: at(8), mB: at(8), hA: at(16), wA: at(32), wB: at(32) };
+    this.auraReady = false;
   }
 
   blur(renderer, src, dst, dx, dy, sigma) {
@@ -158,13 +163,15 @@ export class StudioPass extends Pass {
     const sig = STUDIO.layers.map((l, i) => Math.min(13, (l.sigma * unit) / [4, 8, 32][i]));   // in texels of that layer's target
     this.blur(renderer, t.mask, t.cB, 1, 0, sig[0]);              // contact
     this.blur(renderer, t.cB, t.cA, 0, 1, sig[0]);
-    this.blur(renderer, t.mask, t.mB, 0, 0, 0);                   // 1/8, 1/16, 1/32 copies (bilinear = 2x2 average)
-    this.blur(renderer, t.mB, t.hA, 0, 0, 0);
-    this.blur(renderer, t.hA, t.wA, 0, 0, 0);
-    this.blur(renderer, t.wA, t.wB, 1, 0, sig[2]);                // ambient
-    this.blur(renderer, t.wB, t.wA, 0, 1, sig[2]);
-    this.blur(renderer, t.mB, t.mA, 1, 0, sig[1]);                // penumbra
-    this.blur(renderer, t.mA, t.mB, 0, 1, sig[1]);
+    if (!this.cheap) {
+      this.blur(renderer, t.mask, t.mB, 0, 0, 0);                 // 1/8, 1/16, 1/32 copies (bilinear = 2x2 average)
+      this.blur(renderer, t.mB, t.hA, 0, 0, 0);
+      this.blur(renderer, t.hA, t.wA, 0, 0, 0);
+      this.blur(renderer, t.wA, t.wB, 1, 0, sig[2]);              // ambient: the wide, expensive tail
+      this.blur(renderer, t.wB, t.wA, 0, 1, sig[2]);
+      this.blur(renderer, t.mB, t.mA, 1, 0, sig[1]);              // penumbra
+      this.blur(renderer, t.mA, t.mB, 0, 1, sig[1]);
+    }
 
     renderer.setRenderTarget(prev.target);
     renderer.autoClear = prev.auto;
@@ -178,14 +185,19 @@ export class StudioPass extends Pass {
     // way and a little lighter, so a close-up is not swallowed by the shadow of the walls just outside the frame.
     const zoom = Math.max(0.3, this.camera.zoom || 1), unit = (H / 1080) * Math.pow(zoom, 0.55);
     const soften = 1 / (1 + 0.35 * Math.max(0, zoom - 1));
-    this.buildAura(renderer, unit);
+    this.rebuilt = false;
+    if (!(this.holdAura && this.auraReady)) {
+      this.buildAura(renderer, unit);
+      this.auraReady = true;
+      this.rebuilt = true;
+    }
     const t = this.t;
     u.tDiffuse.value = readBuffer.texture;
     u.tHold.value = u.tL0.value = t.cA.texture;                            // the silhouette, lightly blurred: where the building really is
     u.tL1.value = t.mB.texture;
     u.tL2.value = t.wA.texture;
     STUDIO.layers.forEach((l, i) => u.push.value[i].set(0, (l.down * unit) / H));
-    u.layerW.value.set(STUDIO.layers[0].w, STUDIO.layers[1].w * soften, STUDIO.layers[2].w * soften);
+    u.layerW.value.set(STUDIO.layers[0].w, this.cheap ? 0 : STUDIO.layers[1].w * soften, this.cheap ? 0 : STUDIO.layers[2].w * soften);
     this.fsQuad.material = this.composeMat;
     renderer.setRenderTarget(this.renderToScreen ? null : writeBuffer);
     if (this.clear) renderer.clear();
