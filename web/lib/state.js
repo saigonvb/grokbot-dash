@@ -449,6 +449,29 @@ export class StateStore {
 
   reassignAll() {
     for (const bot of this.bots.values()) this.assign(bot);
+    this.pruneEmptyFloors();
+  }
+
+  /** Drop a bot and the desk they held. An empty floor goes with them. */
+  removeBot(id) {
+    const bot = this.bots.get(id);
+    if (!bot) return false;
+    if (bot.assign) this.members.get(bot.assign.floor)?.delete(bot.assign.desk);
+    this.bots.delete(id);
+    this.schedules.delete(id);
+    this.usage.bots.delete(id);
+    if (this.feed.some((f) => f.id === id)) this.feed = this.feed.filter((f) => f.id !== id);
+    this.dirty = true;
+    this.pruneEmptyFloors();
+    return true;
+  }
+
+  pruneEmptyFloors() {
+    for (const [fid, occ] of this.members) {
+      if (occ.size) continue;
+      this.members.delete(fid);
+      this.floorReg.delete(fid);
+    }
   }
 
   floorRank(f) {
