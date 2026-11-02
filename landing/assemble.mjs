@@ -11,7 +11,7 @@ const repo = path.resolve(import.meta.dirname, '..');
 const out = path.resolve(process.argv[2] || '_site');
 const parts = [
   // [from, to, which files, { deep: also its subfolders, optional: may not exist yet }]
-  ['landing', '.', /^(index\.html|icon\.png|og\.png)$/],
+  ['landing', '.', /^(index\.html|icon\.png|og\.png|boot\.js|landing\.js|landing\.css)$/],
   ['landing/fonts', 'fonts', /\.woff2$/],
   ['landing/media', 'media', /\.(mp4|jpg)$/],
   ['.', '.', /^PROMPT\.md$/, { optional: true }],          // the one setup prompt, shown on the landing as it is
@@ -23,6 +23,8 @@ const parts = [
   // the wallpaper (face/) resolves ../lib/feed-url.js; the office copy lands in office/lib with the rest of web/lib
   ['web/lib', 'lib', /^feed-url\.js$/],
   ['web/scene', 'office/scene', /\.(js|css)$/],
+  // three@0.170.0, the modules the office imports, plus its MIT license. Same tree the import map names.
+  ['web/vendor/three', 'office/vendor/three', /\.js$|^LICENSE$|^INTEGRITY\.json$/, { deep: true }],
   ['web/ui', 'office/ui', /\.(js|css)$/],
   ['web/audio', 'office/audio', /\.(js|m4a)$/],
   ['web/share', 'office/share', /\.(js|css)$/],

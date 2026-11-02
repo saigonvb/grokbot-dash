@@ -1,6 +1,7 @@
 # Publishes this repository's site to GitHub Pages on every push to main.
 # The landing page is landing/ at the site root. face/ is the wallpaper. office/ is the 3D dashboard.
-# landing/assemble.mjs lists what goes out (no journal, keys, or source art).
+# landing/assemble.mjs lists what goes out (no journal, keys, or source art), including the
+# vendored three@0.170.0 tree under office/vendor/three.
 name: Pages
 on:
   push:

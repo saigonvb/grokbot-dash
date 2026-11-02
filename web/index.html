@@ -17,6 +17,7 @@
   <meta name="twitter:title" content="Grok Bot Dashboard">
   <meta name="twitter:image" content="../assets/brand/og-dashboard.png">
   <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; frame-src 'self'; form-action 'self'; script-src 'self' 'sha256-gB2Jox7UETAA0hIUyDydweE3XiP47xsOcFmb+wcMIIo='; style-src 'self'; style-src-attr 'unsafe-inline'; img-src 'self' blob: data:; font-src 'self'; media-src 'self'; connect-src 'self' https: http://localhost:* http://127.0.0.1:* http://[::1]:* blob:; worker-src 'self'">
   <link rel="icon" type="image/png" href="../assets/brand/logo-mark.png">
   <link rel="apple-touch-icon" href="../assets/brand/logo-mark.png">
   <meta name="theme-color" content="#F3F4F6">
@@ -27,13 +28,12 @@
   <script type="importmap">
     {
       "imports": {
-        "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
-        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+        "three": "./vendor/three/build/three.module.js",
+        "three/addons/": "./vendor/three/examples/jsm/"
       }
     }
   </script>
-  <!-- the two big downloads start with the page, not after the scripts that ask for them (after the import map) -->
-  <link rel="modulepreload" href="https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js">
+  <link rel="modulepreload" href="./vendor/three/build/three.module.js">
   <link rel="preload" href="../assets/office/office.glb" as="fetch" crossorigin>
 </head>
 <body>
