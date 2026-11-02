@@ -57,12 +57,31 @@ let loadingEl = null;
 const WALLPAPER = new URLSearchParams(location.search).get('mode') === 'wallpaper';
 const WALLPAPER_TAGS = new URLSearchParams(location.search).get('tags') === '1';
 const WALLPAPER_FRAME_MS = 1000 / 30;
+const OFFICE_FRAME_MS = 1000 / 30;   // camera, floor changes, bots that are actually doing something
+const IDLE_FRAME_MS = 1000 / 12;     // resting office: breathing and blinks do not need a display refresh
+const LOW_FRAME_MS = 1000 / 15;
 const WALLPAPER_FRAMING = 0.9;                        // < 1 = closer: the side panels' space is not needed, so the tower fills more
 const TEST = (() => {
   const q = new URLSearchParams(location.search);
   return { floor: WALLPAPER ? null : q.get('floor'), from: q.get('from'), intro: q.get('intro'), hold: q.has('hold') ? Number(q.get('hold')) : null, cam: q.get('cam'), cursor: q.get('cursor') };
 })();
 let frozen = false, pinCursor = false;
+let lowPower = readLowPower();
+let wake = true;
+let busy = true;
+const powerStats = { presented: 0, renderMs: 0, auraBuilds: 0, ticks: 0, skipped: 0, since: performance.now() };
+
+function readLowPower() {
+  const q = new URLSearchParams(location.search);
+  if (q.has('lowpower')) return q.get('lowpower') !== '0';
+  const body = location.hash.startsWith('#') ? location.hash.slice(1) : '';
+  const amp = body.indexOf('&');
+  const params = new URLSearchParams(amp === -1 ? '' : body.slice(amp + 1));
+  if (params.has('lowpower')) return params.get('lowpower') !== '0';
+  try { return localStorage.getItem('bothq.lowpower') === '1'; } catch { return false; }
+}
+
+function pixelCap() { return lowPower ? 1 : 1.5; }
 
 // The office GLB is the biggest download: start it the moment this module runs (index.html may have preloaded it
 // already; the loader then reuses that response), not after the renderer and the UI are set up.
@@ -85,9 +104,11 @@ export function initScene(el, cbs = {}) {
     container.append(loadingEl);
   }
 
-  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
-  // the post chain (MSAA, half-float) is capped at 1.5x: soft by design, and it keeps VRAM and fill cost sane
-  renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+  // 'high-performance' pins a dual-GPU laptop to the discrete chip. Default lets Chrome pick;
+  // the fragment flag &lowpower=1 (also ?lowpower=1) asks for the integrated one. The choice is fixed
+  // for the life of the context, so the button reloads after writing the flag.
+  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: lowPower ? 'low-power' : 'default' });
+  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, pixelCap()));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.05;
@@ -122,14 +143,26 @@ export function initScene(el, cbs = {}) {
     Promise.race([fontsPromise, new Promise((r) => setTimeout(r, 1500))]).then(go, go);
   });
 
-  post = createPost(renderer, scene, camera);
+  post = createPost(renderer, scene, camera, { samples: lowPower ? 0 : 2, tilt: !lowPower, cheapAura: lowPower });
 
   addPointerHandlers();
   new ResizeObserver(resize).observe(container);
   resize();
   renderer.setAnimationLoop(frame);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) wake = true; });
 
   window.bothq = Object.assign(window.bothq || {}, {
+    setLowPower,
+    power: {
+      get low() { return lowPower; },
+      get presented() { return powerStats.presented; },
+      get renderMs() { return powerStats.renderMs; },
+      get auraBuilds() { return powerStats.auraBuilds; },
+      get elapsed() { return (performance.now() - powerStats.since) / 1000; },
+      reset() { powerStats.presented = 0; powerStats.renderMs = 0; powerStats.auraBuilds = 0; powerStats.ticks = 0; powerStats.skipped = 0; powerStats.since = performance.now(); },
+      get ticks() { return powerStats.ticks; },
+      get skipped() { return powerStats.skipped; },
+    },
     scene: { get camera() { return camera; }, get building() { return building; }, cam, actors, get daylight() { return daylight; }, switchFloor: (id) => building && switchFloor(id, false), settle },
   });
 }
@@ -145,7 +178,24 @@ function ensureAssets() {
   }
 }
 
+export function setLowPower(on) {
+  const next = !!on;
+  try { localStorage.setItem('bothq.lowpower', next ? '1' : '0'); } catch { /* private mode */ }
+  const body = location.hash.startsWith('#') ? location.hash.slice(1) : '';
+  if (/^[A-Za-z0-9_-]{6,64}(?:&|$)/.test(body)) {
+    const amp = body.indexOf('&');
+    const topic = amp === -1 ? body : body.slice(0, amp);
+    const params = new URLSearchParams(amp === -1 ? '' : body.slice(amp + 1));
+    if (next) params.set('lowpower', '1'); else params.delete('lowpower');
+    const rest = params.toString();
+    const hash = '#' + topic + (rest ? '&' + rest : '');
+    if (hash !== location.hash) { location.hash = hash; return; }   // app.js reloads on a feed hash change
+  }
+  location.reload();
+}
+
 export function renderScene(state, view) {
+  wake = true;
   lastState = state;
   lastView = { ...view };
   if (building) sync();
@@ -284,6 +334,7 @@ function hideLoader() {
 // ---------- camera (all on springs) ----------
 
 export function zoom(dir) {
+  wake = true;
   if (!building) return;
   if (dir === 'reset') {
     cam.x.to(HOME.x); cam.z.to(HOME.z); cam.y.to(building.activeY + HOME.y); cam.zoom.to(0);
@@ -294,6 +345,7 @@ export function zoom(dir) {
 }
 
 export function focusBot(id) {
+  wake = true;
   const a = actors.get(id);
   if (!a || !building) return;
   cam.x.to(a.root.position.x);
@@ -318,6 +370,7 @@ function clampTarget() {
 }
 
 function resize() {
+  wake = true;
   if (!renderer) return;
   const w = container.clientWidth || 1, h = container.clientHeight || 1;
   renderer.setSize(w, h, false);
@@ -373,6 +426,7 @@ function onMove(e) {
   setPointer(e);
   cursor.active = true;
   pointerDirty = true;
+  wake = true;
   if (touches.has(e.pointerId)) touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
   if (pinch && touches.size === 2) {
     const [a, b] = [...touches.values()];
@@ -586,14 +640,48 @@ const focusV = new THREE.Vector3();
 
 let lastDraw = 0;
 
-function frame(t) {
-  if (document.hidden) { clock.getDelta(); return; }       // no work in a background tab
-  if (WALLPAPER) {                                          // <= 30 fps: skip the in-between vsyncs; dt keeps real time
-    const since = t - lastDraw;
-    if (since < WALLPAPER_FRAME_MS - 2) return;
-    lastDraw += Math.max(1, Math.round(since / WALLPAPER_FRAME_MS)) * WALLPAPER_FRAME_MS;  // stay on the 33 ms grid (100+ Hz displays)
-    if (t - lastDraw > WALLPAPER_FRAME_MS / 2) lastDraw = t;                                // fell behind (hidden, hitch): resync, no bursts
+function frameBudget() {
+  if (WALLPAPER) return WALLPAPER_FRAME_MS;
+  if (lowPower) return LOW_FRAME_MS;
+  return busy ? OFFICE_FRAME_MS : IDLE_FRAME_MS;
+}
+
+function motionActive() {
+  if (!cam.x.settled || !cam.y.settled || !cam.z.settled || !cam.zoom.settled) return true;
+  if (cursor.active || drag) return true;
+  if (building) {
+    if (building.pulseT >= 0 || building.introDrop) return true;
+    if (!building.cabinY.settled || !building.shaftTop.settled || !building.roofLift.settled) return true;
+    for (const s of building.slots) if (!s.lift.settled) return true;
   }
+  for (const a of actors.values()) {
+    if (a.anim || a.fx) return true;
+    if (!a.yawS.settled || !a.scaleS.settled || !a.eyeX.settled || !a.eyeY.settled) return true;
+  }
+  return retiring.size > 0;
+}
+
+function livelyActors() {
+  for (const a of actors.values()) {
+    const s = a.status;
+    if (s === 'working' || s === 'error' || s === 'stuck' || s === 'waiting_user') return true;
+  }
+  return false;
+}
+
+function canvasOffscreen() {
+  if (!container) return false;
+  const r = container.getBoundingClientRect();
+  return r.width < 2 || r.height < 2 || r.bottom <= 0 || r.top >= innerHeight;
+}
+
+function frame(t) {
+  powerStats.ticks++;
+  if (document.hidden || canvasOffscreen()) { powerStats.skipped++; clock.getDelta(); return; }   // hidden tab, or the canvas is not on screen
+  const budget = frameBudget();
+  if (!wake && t - lastDraw < budget - 2) { powerStats.skipped++; return; }
+  lastDraw = t;
+  wake = false;
   const dt = frozen ? 0 : Math.min(clock.getDelta(), 0.05);
   if (frozen) clock.getDelta();
   nowSec = clock.elapsedTime;
@@ -614,9 +702,16 @@ function frame(t) {
   }
   stepEffects(dt);
 
+  const moving = motionActive();
+  busy = moving || livelyActors();
   if (post) {
+    post.setHoldAura(!moving);
     focusV.set(0, (building ? building.cabinY.x : 0) + 0.7, 0).project(camera);
+    const t0 = performance.now();
     post.render(clamp(focusV.y * 0.5 + 0.5, 0, 1), dt, clamp(1.5 / camera.zoom, 0.25, 1));
+    powerStats.renderMs += performance.now() - t0;
+    powerStats.presented++;
+    if (post.rebuiltAura) powerStats.auraBuilds++;
   } else renderer.render(scene, camera);
   if (!WALLPAPER || WALLPAPER_TAGS) labels.render(scene, camera);
 }
