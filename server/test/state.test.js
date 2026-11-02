@@ -253,6 +253,12 @@ test('config overrides: bots.json (floor, chat_url, avatar, color) and floors.js
   let st = store.snapshot();
   assert.equal(st.bots['x-writer'].floor, 'finance');
   assert.equal(st.bots['x-writer'].chat_url, 'grokbot://app/v1/agent?id=1');
+  store.setBotsConfig({ 'X Writer': { chat_url: 'https://example.com/chat' } });
+  store.commit();
+  assert.equal(store.snapshot().bots['x-writer'].chat_url, 'https://example.com/chat');
+  store.setBotsConfig({ 'X Writer': { chat_url: 'data:text/html,hi' } });
+  store.commit();
+  assert.equal(store.snapshot().bots['x-writer'].chat_url, null);
   assert.equal(st.bots['x-writer'].avatar, 'custom');
   assert.equal(st.bots['x-writer'].color, '#ABCDEF');
   assert.equal(st.bots.jevopus.floor, 'ops');

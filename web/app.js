@@ -1,5 +1,5 @@
 // Glue: polls /api/state (CONTRACT §4), keeps the view (floor, selection), feeds the scene and the UI.
-// With #<topic> in the link it reads the user's bots from their ntfy.sh channel instead (feed.js): no server at all.
+// With #<topic> in the link it reads the user's bots from their feed server instead (feed.js): no server at all.
 // Without either (static preview) it runs on web/data/demo-state.json with a local simulation.
 import { initScene, renderScene, zoom, focusBot } from './scene/scene.js';
 import { initSound, sfx } from './audio/sound.js';
@@ -134,10 +134,15 @@ async function poll() {
 
 // ---------- the user's own bots: #<topic> ----------
 
-if (/^#[A-Za-z0-9_-]{6,64}(&ntfy=[^&]+)?$/.test(location.hash)) {
+if (/^#[A-Za-z0-9_-]{6,64}(?:&|$)/.test(location.hash)) {
   const { feedFromHash, connectFeed } = await import('./feed.js');
-  connectFeed(feedFromHash(location.hash), (data) => { state = data; render(); });
-  addEventListener('hashchange', () => location.reload());   // another channel: start over
+  const spec = feedFromHash(location.hash);
+  if (spec) {
+    connectFeed(spec, (data) => { state = data; render(); });
+    addEventListener('hashchange', () => location.reload());   // another channel: start over
+  } else {
+    poll();
+  }
 } else {
   poll();
 }

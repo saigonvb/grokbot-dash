@@ -1,5 +1,7 @@
 # Grok Bot relay
 
+Optional mailbox you can deploy yourself. The dashboard and the wallpaper do not call any host named in this folder unless the page link's `&ntfy=` is that host. They do not send usage beacons.
+
 Our own mailbox for the dashboard on Cloudflare Workers, so it no longer depends on ntfy.sh's 250 messages a day per
 IP. Bots keep posting exactly as before, `curl -s -d '<json>' https://<host>/<topic>`; only the host changes.
 
@@ -9,7 +11,7 @@ IP. Bots keep posting exactly as before, `curl -s -d '<json>' https://<host>/<to
 | `GET /<topic>/json?poll=1&since=12h` | The kept messages as newline-delimited JSON `{id,time,expires,event:"message",topic,message}`. `since` also takes `<id>` (the ones after it), `30m`, `all`, `latest`, a unix time. An id the relay no longer has returns everything kept. |
 | `GET /<topic>/ws` | Live: one WebSocket text frame per message (the same JSON), an `open` frame first. Send `ping`, get `pong`. This is what the patched dashboard uses. |
 | `GET /<topic>/sse` | Live, ntfy-style: `data: <json>` per message, `open`/`keepalive` as named events. For plain ntfy clients. |
-| `POST /_beacon` | From the dashboard: `{h, bots, floors, src, phone, has}` when it opens, `{h, secs}` when the visit ends (see Privacy). |
+| `POST /_beacon` | Optional counter this server still accepts. The dashboard in this fork does not call it. |
 | `GET /_stats?key=<STATS_KEY>` | The private stats page; add `&format=json` for the numbers. 404 without the right key. |
 | `GET /v1/health` | `{"healthy":true, ...the limits}` |
 

@@ -191,8 +191,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func editAddress() {
         let alert = NSAlert()
         alert.messageText = "Wallpaper address"
-        alert.informativeText = "The page the wallpaper shows, e.g. https://bodila51.github.io/grokbot-wallpaper/face/#your-topic, "
-            + "or your own bot server: http://localhost:8787/face/?key=…"
+        alert.informativeText = "The page the wallpaper shows. Use the face/ page on the site where you host this dashboard, "
+            + "for example https://<you>.github.io/<repo>/face/#your-topic, or your own bot server: http://127.0.0.1:8787/face/?key=…"
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 440, height: 24))
         field.stringValue = Settings.url.absoluteString
         field.placeholderString = Settings.defaultURL.absoluteString
@@ -206,7 +206,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case .alertFirstButtonReturn:
             guard let url = Settings.address(from: field.stringValue) else {
                 showAlert("That doesn't look like a web address",
-                          "Use an address like https://bodila51.github.io/grokbot-wallpaper/face/#your-topic or http://localhost:8787/face/?key=…")
+                          "Use the face/ address on your own site, or http://127.0.0.1:8787/face/?key=…")
                 return
             }
             Settings.url = url
@@ -270,7 +270,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 }
 
 enum Settings {
-    static let defaultURL = URL(string: "https://bodila51.github.io/grokbot-wallpaper/face/")!
+    /// Local face page. A fresh install does not load anyone else's copy of the dashboard.
+    static let defaultURL = URL(string: "http://127.0.0.1:8787/face/")!
 
     static var url: URL {
         get { UserDefaults.standard.string(forKey: "wallpaperURL").flatMap { URL(string: $0) } ?? defaultURL }

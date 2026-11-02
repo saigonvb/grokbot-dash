@@ -7,7 +7,7 @@ on Apple silicon (M1–M4) or Intel.
 ## Install
 
 1. Download `GrokBotWallpaper.dmg`:
-   - from the releases page: <https://github.com/Bodila51/grokbot-wallpaper/releases/latest>;
+   - from this repository's releases page (the latest `GrokBotWallpaper.dmg`);
    - or the newest build: **Actions** tab → "Mac app" → latest green run → **Artifacts** →
      `GrokBotWallpaper-dmg` (a zip with the `.dmg` inside; needs a GitHub login).
 2. Open the `.dmg` and drag **Grok Bot Wallpaper** into **Applications**.
@@ -30,9 +30,9 @@ After that it opens like any app. It has no Dock icon, only the 👀 icon in the
 - **Bot: White / Black** picks the bot's colour. The choice is remembered and re-applied after every reload.
   Until you pick one, the page decides (white, or `?bot=black` in the wallpaper address).
 - **Reload wallpaper** reloads the page, e.g. after a design update.
-- **Wallpaper address…** sets the page to show. Default: `https://bodila51.github.io/grokbot-wallpaper/face/`.
-  A topic link like `https://bodila51.github.io/grokbot-wallpaper/face/#your-topic` works (`https://` may be left
-  out), and so does your own bot server: `http://localhost:8787/face/?key=…`
+- **Wallpaper address…** sets the page to show. Default: `http://127.0.0.1:8787/face/` (the local server).
+  A topic link is the `face/#your-topic` page on the site where you host this dashboard (`https://` may be left
+  out), and so is your own bot server: `http://127.0.0.1:8787/face/?key=…`
   (see [README-server.md](../README-server.md)). **Default** goes back to the demo.
 - **Launch at login** starts the wallpaper when you log in. If macOS wants approval,
   System Settings → General → Login Items opens.

@@ -1,3 +1,5 @@
+import { parseFeedHash, parseFeedServer, ntfyAuthUrl, DEFAULT_FEED_SERVER } from '../lib/feed-url.js';
+
 // Grok Bot Wallpaper: live eyes on the big sphere + the user's bots as live cards.
 // The eyes follow the cursor (Lively forwards mouse moves to the wallpaper); with no cursor around they wander,
 // blink, glance at whichever bot needs the user, and get sleepy when every bot is resting. Data: /api/state (the
@@ -267,9 +269,23 @@ function libFace(bot, look) {
   }
   return `<img src="../assets/blobs/lib/${shape}-${hex}.png" alt="" draggable="false" data-fb="${esc(avatar(bot, look))}" onerror="this.outerHTML=this.dataset.fb">`;
 }
+function hexColor(c) {
+  const m = /^#([0-9a-f]{6})$/i.exec(String(c || '').trim());
+  return m ? `#${m[1].toUpperCase()}` : '#8E8E93';
+}
+function safeLook(v) {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
+  const shape = typeof v.shape === 'string' && SHAPES.includes(v.shape.trim().toLowerCase().replace(/[\s-]+/g, '_'))
+    ? v.shape.trim().toLowerCase().replace(/[\s-]+/g, '_') : null;
+  const color = /^#?[0-9a-f]{6}$/i.test(String(v.color || '').trim()) ? hexColor(v.color) : null;
+  const accessory = ['none', 'glasses', 'stem', 'antenna', 'bow'].includes(String(v.accessory || '').trim().toLowerCase())
+    ? String(v.accessory).trim().toLowerCase() : 'none';
+  if (!shape && !color) return null;
+  return { shape, color, accessory };
+}
 function avatar(bot, look) {
-  const shape = look?.shape || SHAPES[hash(bot.id) % SHAPES.length];
-  const c = look?.color || bot.color || '#8E8E93';
+  const shape = (look?.shape && SHAPES.includes(look.shape)) ? look.shape : SHAPES[hash(bot.id) % SHAPES.length];
+  const c = hexColor(look?.color || bot.color);
   const tilt = ((hash(bot.id + 't') % 30) - 15);
   const eye = 'fill="#fff"';
   const [r, g, bl] = [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16) / 255);
@@ -594,19 +610,27 @@ window.livelyPropertyListener = (name, value) => {
   }
 };
 
-// ---------- the user's own bots: their channel on ntfy.sh ----------
+// ---------- the user's own bots: one feed server ----------
 // A link with #<channel> (or the older ?feed=<channel>), remembered after that, connects the wallpaper to the user's
-// bots; the hash never reaches GitHub Pages, and &ntfy=<https server> picks a self-hosted ntfy. Every bot posts one
-// line per status change, {"bot":"…","status":"…","step":"…"}, plus roster, looks and usage lines (README), to the
-// channel with plain curl; nothing else runs on the bots' box. The page reads the last 12 hours, then listens live.
+// bots. The hash never reaches the site that served this page. &ntfy=<https server> picks a self-hosted ntfy, and
+// &auth=<token> is that server's access token (sent only there). Every bot posts one line per status change,
+// {"bot":"…","status":"…","step":"…"}, plus roster, looks and usage lines (README), with plain curl.
 const stored = (key) => { try { return localStorage.getItem(key); } catch { return null; } };
-const HASH = /^#([A-Za-z0-9_-]{6,64})(?:&ntfy=([^&]+))?$/.exec(location.hash);
-function httpsServer(raw) {
-  try { const u = new URL(raw); return u.protocol === 'https:' || u.hostname === 'localhost' ? (u.origin + u.pathname).replace(/\/+$/, '') : null; } catch { return null; }
+const FROM_HASH = parseFeedHash(location.hash);
+const FEED = FROM_HASH?.topic || params.get('feed') || stored('gbw.feed');
+// A server named in the fragment wins. Otherwise a ?ntfy= query (older links). A token is accepted only from
+// the fragment, then remembered with the server: it is never taken from the query string, which this host receives.
+const serverFromLink = (FROM_HASH?.explicitServer ? FROM_HASH.server : '') || parseFeedServer(params.get('ntfy') || '') || '';
+const NTFY = serverFromLink || stored('gbw.ntfy') || DEFAULT_FEED_SERVER;
+const AUTH = FROM_HASH?.auth || (serverFromLink ? '' : (stored('gbw.auth') || ''));
+if (FROM_HASH || params.get('feed') || serverFromLink) {
+  try {
+    localStorage.setItem('gbw.feed', FEED);
+    localStorage.setItem('gbw.ntfy', NTFY);
+    if (AUTH) localStorage.setItem('gbw.auth', AUTH);
+    else localStorage.removeItem('gbw.auth');
+  } catch { /* private mode: not remembered */ }
 }
-const FEED = HASH?.[1] || params.get('feed') || stored('gbw.feed');
-const NTFY = httpsServer(HASH?.[2] ? decodeURIComponent(HASH[2]) : params.get('ntfy') || '') || stored('gbw.ntfy') || 'https://ntfy.sh';
-if (HASH || params.get('feed')) { try { localStorage.setItem('gbw.feed', FEED); localStorage.setItem('gbw.ntfy', NTFY); } catch { /* private mode: not remembered */ } }
 const CYR = {
   а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'e', ж: 'zh', з: 'z', и: 'i', й: 'y', к: 'k', л: 'l', м: 'm', н: 'n', о: 'o',
   п: 'p', р: 'r', с: 's', т: 't', у: 'u', ф: 'f', х: 'kh', ц: 'ts', ч: 'ch', ш: 'sh', щ: 'shch', ъ: '', ы: 'y', ь: '', э: 'e',
@@ -631,7 +655,10 @@ function applyLine(text, time) {                         // a status, roster, lo
   try { ev = JSON.parse(text); } catch { return false; }
   const at = new Date((Number(time) || Date.now() / 1000) * 1000).toISOString();
   if (ev?.looks && typeof ev.looks === 'object' && !Array.isArray(ev.looks)) {   // how each bot looks: its avatar
-    for (const [name, look] of Object.entries(ev.looks).slice(0, 400)) if (look && typeof look === 'object') looks[botId(name)] = look;
+    for (const [name, look] of Object.entries(ev.looks).slice(0, 400)) {
+      const clean = safeLook(look);
+      if (clean) looks[botId(name)] = clean;
+    }
     crew = '';                                           // rebuild the avatars
     return true;
   }
@@ -676,7 +703,7 @@ async function connectFeed() {
   state = { bots: saved.bots, usage: saved.usage ?? null };
   const base = `${NTFY}/${encodeURIComponent(FEED)}`;
   try {
-    const text = await (await fetch(`${base}/json?poll=1&since=12h`, { cache: 'no-store' })).text();
+    const text = await (await fetch(ntfyAuthUrl(`${base}/json?poll=1&since=12h`, AUTH), { cache: 'no-store', referrerPolicy: 'no-referrer' })).text();
     for (const line of text.split('\n')) {
       if (!line) continue;
       const m = JSON.parse(line);
@@ -686,7 +713,7 @@ async function connectFeed() {
   settleQuiet();
   remember();
   render(state);
-  const live = new EventSource(`${base}/sse`);
+  const live = new EventSource(ntfyAuthUrl(`${base}/sse`, AUTH));
   live.onmessage = (e) => {
     try { const m = JSON.parse(e.data); if (m.event === 'message' && applyLine(m.message, m.time)) { remember(); render(state); } } catch { /* not a status line */ }
   };

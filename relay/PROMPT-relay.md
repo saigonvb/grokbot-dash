@@ -1,3 +1,5 @@
+Do not point this prompt at a relay you do not run. Replace YOUR-RELAY-HOST with the host of a relay you deployed (`relay/README.md`). The dashboard reads that host only when the link contains `&ntfy=`. It does not call any other mailbox.
+
 Paste this into your Grok Bot once. It connects all your bots to a live 3D dashboard, with no server to run.
 (The text has no links or hashtags on purpose, so it pastes cleanly into X. The bot builds the addresses itself in step 1.)
 
@@ -5,7 +7,7 @@ Paste this into your Grok Bot once. It connects all your bots to a live 3D dashb
 I'd like to set up a small status feed for all my bots, so I can watch them on a dashboard. It uses a small free status mailbox (it works like ntfy) over plain HTTPS with curl. Please do these steps in order.
 
 1. Run this once. It prints three lines: remember the first as TOPIC, the second as FEED (the feed address) and the third as LINK (my dashboard). Use them in every step below:
-python3 -c "import secrets,string;t='gbw-'+''.join(secrets.choice(string.ascii_letters+string.digits) for _ in range(22));print(t);print('https:'+'//'+'relay'+'.0xcodila'+'.com/'+t);print('https:'+'//'+'bodila51.github'+'.io/grokbot-wallpaper/office/'+chr(35)+t)"
+python3 -c "import secrets,string;t='gbw-'+''.join(secrets.choice(string.ascii_letters+string.digits) for _ in range(22));print(t);print('https:'+'//'+'YOUR-RELAY-HOST/'+t);print('office/'+chr(35)+t+'&ntfy='+'https:'+'//'+'YOUR-RELAY-HOST')"
 
 2. Save the rule below in my shared user memory (the shared profile that all my bots see), with the real FEED address written in. Save it as three separate short facts, each under 400 characters, so none gets cut. If the shared memory already has an older rule about posting statuses to ntfy, delete it, or mark it as replaced by this one.
 Fact A: On every status change (you start a task, finish it, need me, hit an error, go idle), run: curl -s -d '{"bot":"<your exact name>","status":"working|idle|waiting_user|error|done","step":"<what you are doing>"}' FEED
