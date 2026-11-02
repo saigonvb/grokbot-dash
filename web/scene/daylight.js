@@ -86,7 +86,7 @@ const STUDIO_MINUTES = 12 * 60;                 // the studio is always lit like
 const LAMP_COUNT = 6;
 const LAMP_INTENSITY = 16;
 
-export function createDaylight({ scene, renderer }) {
+export function createDaylight({ scene, renderer, eco = false }) {
   const sun = new THREE.DirectionalLight(0xffffff, 1);
   const hemi = new THREE.HemisphereLight(0xffffff, 0xffffff, 1);
   const fill = new THREE.DirectionalLight(0xffffff, 0.4);
@@ -94,12 +94,15 @@ export function createDaylight({ scene, renderer }) {
   scene.add(sun, hemi, fill);
 
   const lamps = [];
-  for (let i = 0; i < LAMP_COUNT; i++) {
-    const l = new THREE.PointLight(0xffc98a, 0, 8.5, 2);
-    l.castShadow = false;
-    l.position.set(0, -99, 0);
-    scene.add(l);
-    lamps.push(l);
+  // Eco uses the sun, hemisphere and fill only. Six point lights stay out of the shader.
+  if (!eco) {
+    for (let i = 0; i < LAMP_COUNT; i++) {
+      const l = new THREE.PointLight(0xffc98a, 0, 8.5, 2);
+      l.castShadow = false;
+      l.position.set(0, -99, 0);
+      scene.add(l);
+      lamps.push(l);
+    }
   }
 
   const tracked = new Map();                      // material -> kind ('lamp' | 'windows')
@@ -150,6 +153,7 @@ export function createDaylight({ scene, renderer }) {
   }
 
   function updateLamps() {
+    if (!lamps.length) return;
     const src = lampSource ? lampSource() : null;
     const k = src ? src.k * state.lampsK : 0;
     for (let i = 0; i < LAMP_COUNT; i++) {
@@ -164,7 +168,8 @@ export function createDaylight({ scene, renderer }) {
     clockMs = nowMs;
     const minutes = nowMinutes();
     const target = paramsAt(minutes);
-    if (!cur) cur = target;
+    // Eco snaps. The exponential mix never quite lands, which would keep a demand-render loop awake.
+    if (eco || !cur) cur = target;
     else {
       const k = 1 - Math.exp(-dt / 0.45);        // never jump: follow the clock with a soft lag
       cur = mixParams(cur, target, k);

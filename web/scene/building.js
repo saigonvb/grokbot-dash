@@ -74,7 +74,8 @@ class Instance {
   register(c, mesh, windowOffset) {
     this.mats.push(c);
     const bn = mesh.userData.bakedName;
-    if (bn && c.map && !c.userData.nightPatched) this.b.patchBaked(c, bn);
+    // Eco stays on the day lightmap: the night-mix shader samples a second texture on every pixel.
+    if (bn && c.map && !c.userData.nightPatched && !this.b.eco) this.b.patchBaked(c, bn);
     if (c.name === 'night_lamp') {
       if (c.emissive.getHex() === 0) c.emissive.set(0xFFC070);
       c.emissiveIntensity = 0;
@@ -107,12 +108,13 @@ class Instance {
 }
 
 export class Building {
-  constructor({ scene, daylight, assets, baseUrl, renderer }) {
+  constructor({ scene, daylight, assets, baseUrl, renderer, eco = false }) {
     this.scene = scene;
     this.daylight = daylight;
     this.assets = assets;
     this.baseUrl = baseUrl;
     this.renderer = renderer;
+    this.eco = eco;
     this.group = new THREE.Group();
     this.group.name = 'building';
     this.group.visible = false;         // nothing (not even the shaft) until the first floor drops in: scene.js shows a loader
@@ -276,7 +278,7 @@ export class Building {
       this.group.visible = true;
       this.introDrop = true;
     }
-    if (moved && !intro && !REDUCED) { this.pulseT = 0; this.swapped = false; }   // swap under the blur peak
+    if (moved && !intro && !REDUCED && !this.eco) { this.pulseT = 0; this.swapped = false; }   // swap under the blur peak
     else this.applyShown();
     this.retarget(intro);
     if (intro) { this.cabinY.snap(this.cabinY.target); this.shaftTop.snap(this.shaftTop.target); }   // a whole elevator, not a stub growing alone
@@ -385,9 +387,10 @@ export class Building {
     inst.screens.forEach((s, i) => {
       if (!s) return;
       s.target = isActive ? (this.screenTargets[i] || 0) : 0;
-      s.glow += (s.target - s.glow) * k;
+      if (this.eco) s.glow = s.target;
+      else s.glow += (s.target - s.glow) * k;
       s.mat.emissiveIntensity = s.glow * (0.32 + 1.35 * night) + night * 0.03;
     });
-    inst.walls?.tick(nowMs, night);
+    inst.walls?.tick(nowMs, night, this.eco);
   }
 }

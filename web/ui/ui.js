@@ -171,7 +171,7 @@ function setNum(n, v, animate) {
   n._to = v;
   if (n._raf) { cancelAnimationFrame(n._raf); n._raf = 0; }
   if (n._tm) { clearTimeout(n._tm); n._tm = 0; }
-  if (animate === false || reducedMotion.matches || from === v) { n.textContent = String(v); return; }
+  if (animate === false || reducedMotion.matches || document.documentElement.classList.contains('bhq-eco') || from === v) { n.textContent = String(v); return; }
   const t0 = performance.now(), dur = 700;
   const tick = (now) => {
     const k = clamp((now - t0) / dur, 0, 1), e = 1 - Math.pow(1 - k, 3);
@@ -639,7 +639,7 @@ function buildZoom() {
     class: 'bhq-zbtn z-power', type: 'button',
     'aria-pressed': window.bothq?.power?.low ? 'true' : 'false',
     'aria-label': 'Light mode, lower GPU use',
-    title: 'Light mode, lower GPU use. Also #…&lowpower=1',
+    title: 'Eco: draw only when the office changes. Stays on after reload. Also #…&lowpower=1',
     text: 'Eco',
   });
   power.addEventListener('click', () => { if (window.bothq?.setLowPower) window.bothq.setLowPower(power.getAttribute('aria-pressed') !== 'true'); });

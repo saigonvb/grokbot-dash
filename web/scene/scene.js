@@ -9,7 +9,7 @@ import { Building } from './building.js';
 import { createDaylight } from './daylight.js';
 import { createPost } from './post.js';
 import { studioCss } from './studio.js';
-import { Actor } from './actor.js';
+import { Actor, flattenMaterials } from './actor.js';
 import { generateBlob } from './blobgen.js';
 import { Spring, clamp } from './spring.js';
 import { sofiaHour, fontsPromise } from './walls.js';
@@ -59,7 +59,8 @@ const WALLPAPER_TAGS = new URLSearchParams(location.search).get('tags') === '1';
 const WALLPAPER_FRAME_MS = 1000 / 30;
 const OFFICE_FRAME_MS = 1000 / 30;   // camera, floor changes, bots that are actually doing something
 const IDLE_FRAME_MS = 1000 / 12;     // resting office: breathing and blinks do not need a display refresh
-const LOW_FRAME_MS = 1000 / 15;
+const ECO_PIXEL = 0.75;              // internal resolution vs device pixels; CSS stretches the canvas
+const ECO_MAX_EDGE = 1280;           // longest drawing-buffer edge in Eco
 const WALLPAPER_FRAMING = 0.9;                        // < 1 = closer: the side panels' space is not needed, so the tower fills more
 const TEST = (() => {
   const q = new URLSearchParams(location.search);
@@ -67,8 +68,10 @@ const TEST = (() => {
 })();
 let frozen = false, pinCursor = false;
 let lowPower = readLowPower();
+if (lowPower) document.documentElement.classList.add('bhq-eco');
 let wake = true;
 let busy = true;
+let ecoPending = false;
 const powerStats = { presented: 0, renderMs: 0, auraBuilds: 0, ticks: 0, skipped: 0, since: performance.now() };
 
 function readLowPower() {
@@ -81,7 +84,14 @@ function readLowPower() {
   try { return localStorage.getItem('bothq.lowpower') === '1'; } catch { return false; }
 }
 
-function pixelCap() { return lowPower ? 1 : 1.5; }
+function pixelRatioFor(w, h) {
+  const dpr = devicePixelRatio || 1;
+  if (!lowPower) return Math.min(dpr, 1.5);
+  let pr = Math.min(dpr, ECO_PIXEL);
+  const edge = Math.max(w || 1, h || 1) * pr;
+  if (edge > ECO_MAX_EDGE) pr *= ECO_MAX_EDGE / edge;
+  return Math.max(0.25, pr);
+}
 
 // The office GLB is the biggest download: start it the moment this module runs (index.html may have preloaded it
 // already; the loader then reuses that response), not after the renderer and the UI are set up.
@@ -104,13 +114,18 @@ export function initScene(el, cbs = {}) {
     container.append(loadingEl);
   }
 
-  // 'high-performance' pins a dual-GPU laptop to the discrete chip. Default lets Chrome pick;
-  // the fragment flag &lowpower=1 (also ?lowpower=1) asks for the integrated one. The choice is fixed
-  // for the life of the context, so the button reloads after writing the flag.
-  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: lowPower ? 'low-power' : 'default' });
-  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, pixelCap()));
+  // 'high-performance' pins a dual-GPU laptop to the discrete chip. Default lets Chrome pick.
+  // Eco (&lowpower=1, ?lowpower=1, or localStorage bothq.lowpower) asks for the integrated GPU,
+  // no MSAA, and a smaller drawing buffer. The preference is fixed for the life of the context,
+  // so the button reloads after writing the flag.
+  renderer = new THREE.WebGLRenderer({
+    antialias: !lowPower,
+    alpha: true,
+    powerPreference: lowPower ? 'low-power' : 'default',
+  });
+  renderer.setPixelRatio(pixelRatioFor(container.clientWidth, container.clientHeight));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMapping = lowPower ? THREE.NoToneMapping : THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.05;
   renderer.setClearColor(0x000000, 0);
   renderer.domElement.className = 'hq-canvas';
@@ -121,11 +136,13 @@ export function initScene(el, cbs = {}) {
   container.append(labels.domElement);
 
   scene = new THREE.Scene();
-  const pmrem = new THREE.PMREMGenerator(renderer);
-  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-  scene.environmentIntensity = 0.55;
+  if (!lowPower) {
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    scene.environmentIntensity = 0.55;
+  }
 
-  daylight = createDaylight({ scene, renderer });
+  daylight = createDaylight({ scene, renderer, eco: lowPower });
   document.documentElement.dataset.sky = 'studio';        // white backdrop at every hour: the UI stays on light glass (web/styles.css)
   container.style.background = studioCss();               // the same backdrop as the post pass draws, for the first moments
 
@@ -135,7 +152,8 @@ export function initScene(el, cbs = {}) {
 
   officeAssets.then((a) => {
     assets = a;
-    building = new Building({ scene, daylight, assets: a, baseUrl: `${ASSETS}/office`, renderer });
+    if (lowPower) for (const t of Object.values(a.templates)) flattenMaterials(t);
+    building = new Building({ scene, daylight, assets: a, baseUrl: `${ASSETS}/office`, renderer, eco: lowPower });
     a.spots.lounges.forEach((s) => { if (s) s.lounge = true; });
     window.bothq = Object.assign(window.bothq || {}, { source: a.source });
     resize();
@@ -143,13 +161,24 @@ export function initScene(el, cbs = {}) {
     Promise.race([fontsPromise, new Promise((r) => setTimeout(r, 1500))]).then(go, go);
   });
 
-  post = createPost(renderer, scene, camera, { samples: lowPower ? 0 : 2, tilt: !lowPower, cheapAura: lowPower });
+  // Eco skips the composer entirely: no MSAA, tilt-shift, contact shadow, penumbra, or ambient blur.
+  post = lowPower ? null : createPost(renderer, scene, camera, { samples: 2, tilt: true, cheapAura: false });
 
   addPointerHandlers();
   new ResizeObserver(resize).observe(container);
   resize();
-  renderer.setAnimationLoop(frame);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) wake = true; });
+  if (lowPower) {
+    if ('IntersectionObserver' in window) {
+      new IntersectionObserver((entries) => {
+        if (entries.some((e) => e.isIntersecting)) requestDraw();
+      }).observe(container);
+    }
+    fontsPromise.then(() => requestDraw());
+    requestDraw();
+  } else {
+    renderer.setAnimationLoop(frame);
+  }
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) requestDraw(); });
 
   window.bothq = Object.assign(window.bothq || {}, {
     setLowPower,
@@ -162,6 +191,8 @@ export function initScene(el, cbs = {}) {
       reset() { powerStats.presented = 0; powerStats.renderMs = 0; powerStats.auraBuilds = 0; powerStats.ticks = 0; powerStats.skipped = 0; powerStats.since = performance.now(); },
       get ticks() { return powerStats.ticks; },
       get skipped() { return powerStats.skipped; },
+      // Eco: false once the demand loop has stopped. The paced loop is always running.
+      get running() { return lowPower ? ecoPending : true; },
     },
     scene: { get camera() { return camera; }, get building() { return building; }, cam, actors, get daylight() { return daylight; }, switchFloor: (id) => building && switchFloor(id, false), settle },
   });
@@ -195,13 +226,14 @@ export function setLowPower(on) {
 }
 
 export function renderScene(state, view) {
-  wake = true;
+  requestDraw();
   lastState = state;
   lastView = { ...view };
   if (building) sync();
 }
 
 function sync() {
+  requestDraw();
   const state = lastState, view = lastView;
   const floors = [...state.floors].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
   building.setFloors(floors);
@@ -224,7 +256,7 @@ function sync() {
   for (const bot of floorBots) {
     let actor = actors.get(bot.id);
     if (!actor) {
-      actor = new Actor(bot, { parent: inst.root, inst, pickables, confetti, cursor, dropDelay: delay });
+      actor = new Actor(bot, { parent: inst.root, inst, pickables, confetti, cursor, dropDelay: delay, lowPower });
       actors.set(bot.id, actor);
       attachModel(actor, bot);
     }
@@ -334,7 +366,7 @@ function hideLoader() {
 // ---------- camera (all on springs) ----------
 
 export function zoom(dir) {
-  wake = true;
+  requestDraw();
   if (!building) return;
   if (dir === 'reset') {
     cam.x.to(HOME.x); cam.z.to(HOME.z); cam.y.to(building.activeY + HOME.y); cam.zoom.to(0);
@@ -345,7 +377,7 @@ export function zoom(dir) {
 }
 
 export function focusBot(id) {
-  wake = true;
+  requestDraw();
   const a = actors.get(id);
   if (!a || !building) return;
   cam.x.to(a.root.position.x);
@@ -370,9 +402,10 @@ function clampTarget() {
 }
 
 function resize() {
-  wake = true;
+  requestDraw();
   if (!renderer) return;
   const w = container.clientWidth || 1, h = container.clientHeight || 1;
+  renderer.setPixelRatio(pixelRatioFor(w, h));
   renderer.setSize(w, h, false);
   labels.setSize(w, h);
   post?.setSize(w, h);
@@ -395,11 +428,11 @@ const pxPerMeter = () => renderer.domElement.clientHeight / ((camera.top - camer
 function addPointerHandlers() {
   const el = renderer.domElement;
   el.addEventListener('pointermove', onMove);
-  el.addEventListener('pointerleave', () => { cursor.active = false; setHover(null); });
+  el.addEventListener('pointerleave', () => { cursor.active = false; setHover(null); requestDraw(); });
   if (WALLPAPER) return;                              // a desktop background: bots follow the cursor, nothing else
   el.addEventListener('pointerdown', onDown);
   el.addEventListener('pointerup', onUp);
-  el.addEventListener('pointercancel', (e) => { touches.delete(e.pointerId); drag = null; pinch = null; });
+  el.addEventListener('pointercancel', (e) => { touches.delete(e.pointerId); drag = null; pinch = null; requestDraw(); });
   el.addEventListener('wheel', onWheel, { passive: false });
   el.addEventListener('contextmenu', (e) => e.preventDefault());
 }
@@ -426,7 +459,7 @@ function onMove(e) {
   setPointer(e);
   cursor.active = true;
   pointerDirty = true;
-  wake = true;
+  requestDraw();
   if (touches.has(e.pointerId)) touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
   if (pinch && touches.size === 2) {
     const [a, b] = [...touches.values()];
@@ -452,7 +485,11 @@ function onMove(e) {
 
 function onUp(e) {
   touches.delete(e.pointerId);
-  if (pinch) { if (touches.size < 2) pinch = null; drag = null; return; }
+  if (pinch) {
+    if (touches.size < 2) { pinch = null; requestDraw(); }
+    drag = null;
+    return;
+  }
   if (!drag || drag.id !== e.pointerId) return;
   const d = drag;
   drag = null;
@@ -460,10 +497,12 @@ function onUp(e) {
     const vx = clamp(d.vx, -30, 30), vz = clamp(d.vz, -30, 30);
     cam.x.v = vx; cam.z.v = vz;
     cam.x.to(cam.x.x + vx * 0.12); cam.z.to(cam.z.x + vz * 0.12);
+    requestDraw();
     return;
   }
   setPointer(e);
   callbacks.onSelectBot?.(pick());
+  requestDraw();
 }
 
 function onWheel(e) {
@@ -480,6 +519,7 @@ function onWheel(e) {
   cam.x.to(cam.x.target + (mx - my) / Math.SQRT2);
   cam.z.to(cam.z.target + (-mx - my) / Math.SQRT2);
   cam.zoom.to(Math.log(z1));
+  requestDraw();
 }
 
 function pick() {
@@ -547,7 +587,7 @@ function stepEffects(dt) {
 // Returns a <canvas> of width x height, or null while the office is still loading.
 export function captureScene({ width = 1600, height = 900, scale = 1, box = { x: 0.06, y: 0.06, w: 0.88, h: 0.76 } } = {}) {
   const inst = building?.activeOpen();
-  if (!inst || !post) return null;
+  if (!inst || !renderer) return null;
   const pr = renderer.getPixelRatio();
   const maxPx = Math.min(renderer.capabilities.maxTextureSize, renderer.capabilities.maxRenderbufferSize || Infinity);
   const ss = Math.max(1, Math.min(scale, maxPx / width, maxPx / height));
@@ -566,10 +606,11 @@ export function captureScene({ width = 1600, height = 900, scale = 1, box = { x:
     }
     renderer.setPixelRatio(ss);
     renderer.setSize(width, height, false);
-    post.setSize(width, height);
+    post?.setSize(width, height);
     frameShot(width / height, box);
     focusV.set(0, building.cabinY.x + 0.7, 0).project(camera);
-    post.render(clamp(focusV.y * 0.5 + 0.5, 0, 1), 0, 1);
+    if (post) post.render(clamp(focusV.y * 0.5 + 0.5, 0, 1), 0, 1);
+    else renderer.render(scene, camera);
     const out = document.createElement('canvas');
     out.width = width; out.height = height;
     const g = out.getContext('2d');
@@ -588,7 +629,8 @@ export function captureScene({ width = 1600, height = 900, scale = 1, box = { x:
     camera.position.copy(pos0);
     camera.updateProjectionMatrix();
     focusV.set(0, building.cabinY.x + 0.7, 0).project(camera);
-    post.render(clamp(focusV.y * 0.5 + 0.5, 0, 1), 0, clamp(1.5 / camera.zoom, 0.25, 1));
+    if (post) post.render(clamp(focusV.y * 0.5 + 0.5, 0, 1), 0, clamp(1.5 / camera.zoom, 0.25, 1));
+    else renderer.render(scene, camera);
   }
 }
 
@@ -642,8 +684,43 @@ let lastDraw = 0;
 
 function frameBudget() {
   if (WALLPAPER) return WALLPAPER_FRAME_MS;
-  if (lowPower) return LOW_FRAME_MS;
   return busy ? OFFICE_FRAME_MS : IDLE_FRAME_MS;
+}
+
+// Ask for one frame. The paced loop is already spinning; Eco arms a single rAF and
+// re-arms it only while something on screen is still moving.
+function requestDraw() {
+  wake = true;
+  if (!lowPower || ecoPending || !renderer) return;
+  ecoPending = true;
+  requestAnimationFrame(ecoFrame);
+}
+
+function ecoFrame(t) {
+  ecoPending = false;
+  frame(t);
+  if (document.hidden || canvasOffscreen()) return;
+  if (ecoBusy()) requestDraw();
+}
+
+// True only while a spring, floor change, retire, or a pending wall redraw still needs pixels.
+// A resting cursor, a working bot, and a pulsing ring do not count: those loops are off in Eco.
+function ecoBusy() {
+  if (effects.length) return true;
+  if (!cam.x.settled || !cam.y.settled || !cam.z.settled || !cam.zoom.settled) return true;
+  if (building) {
+    if (building.pulseT >= 0 || building.introDrop) return true;
+    if (!building.cabinY.settled || !building.shaftTop.settled || !building.roofLift.settled) return true;
+    for (const s of building.slots) if (!s.lift.settled) return true;
+    const walls = building.activeOpen()?.walls;
+    if (walls?.dirty) return true;
+  }
+  for (const a of actors.values()) {
+    if (a.anim || a.fx) return true;
+    if (!a.yawS.settled || !a.scaleS.settled || !a.eyeX.settled || !a.eyeY.settled) return true;
+  }
+  for (const a of retiring) if (!a.dead && !a.scaleS.settled) return true;
+  return false;
 }
 
 function motionActive() {
@@ -704,14 +781,14 @@ function frame(t) {
 
   const moving = motionActive();
   busy = moving || livelyActors();
+  const t0 = performance.now();
   if (post) {
     post.setHoldAura(!moving);
     focusV.set(0, (building ? building.cabinY.x : 0) + 0.7, 0).project(camera);
-    const t0 = performance.now();
     post.render(clamp(focusV.y * 0.5 + 0.5, 0, 1), dt, clamp(1.5 / camera.zoom, 0.25, 1));
-    powerStats.renderMs += performance.now() - t0;
-    powerStats.presented++;
     if (post.rebuiltAura) powerStats.auraBuilds++;
   } else renderer.render(scene, camera);
+  powerStats.renderMs += performance.now() - t0;
+  powerStats.presented++;
   if (!WALLPAPER || WALLPAPER_TAGS) labels.render(scene, camera);
 }

@@ -84,6 +84,9 @@
 .bhq-glow::before { width: 80%; height: 140%; left: 32%; top: -62%; background: var(--glow); opacity: var(--g1); animation: bhq-flow 9s ease-in-out infinite alternate; }
 .bhq-glow::after { width: 55%; height: 110%; left: -22%; top: 45%; background: var(--glow); opacity: var(--g2); animation: bhq-flow2 11s ease-in-out infinite alternate; }
 .bhq-glow--still::before, .bhq-glow--still::after { animation: none; }
+/* Eco: the flowing glass glow is an infinite blurred layer. Hide it so the compositor can sleep. */
+html.bhq-eco .bhq-glow::before, html.bhq-eco .bhq-glow::after { animation: none !important; filter: none; display: none; }
+html.bhq-eco .bhq-live-dot { animation: none !important; }
 
 /* ====================================================================== small parts */
 
