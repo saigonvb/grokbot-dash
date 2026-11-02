@@ -111,9 +111,10 @@ export class WallDisplays {
     return parts.join('|');
   }
 
-  // night: 0..1; called every frame (cheap), redraws only when dirty and ≥ 1 s since the last draw
-  tick(nowMs, night) {
-    if (this.data && (this.dirty || (!this.fontsAtDraw && fontsReady)) && nowMs - this.lastDraw > 1000) {
+  // night: 0..1; called every frame (cheap), redraws only when dirty and ≥ 1 s since the last draw.
+  // immediate: Eco draws the dirty board on this frame so the demand loop can stop.
+  tick(nowMs, night, immediate = false) {
+    if (this.data && (this.dirty || (!this.fontsAtDraw && fontsReady)) && (immediate || nowMs - this.lastDraw > 1000)) {
       this.lastDraw = nowMs;
       this.dirty = false;
       this.fontsAtDraw = fontsReady;

@@ -26,6 +26,7 @@
   position: absolute; top: 0; bottom: 0; left: 0; width: 36%; border-radius: inherit; background: currentColor; opacity: .75;
   animation: hq-loading-run 1.25s cubic-bezier(.45, 0, .25, 1) infinite;
 }
+html.bhq-eco .hq-loading-track > i { animation: none; width: 100%; opacity: .35; }
 @keyframes hq-loading-in { from { opacity: 0; } }
 @keyframes hq-loading-run { from { transform: translateX(-100%); } to { transform: translateX(280%); } }
 :root[data-daylight="night"] .hq-loading { color: #A1A1A6; }

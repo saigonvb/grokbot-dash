@@ -5,6 +5,44 @@ import * as THREE from 'three';
 import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import { Spring, REDUCED, clamp, smoothstep } from './spring.js';
 
+// Eco shares one Lambert per source material. The physical/standard originals stay in the blob cache untouched.
+const ecoMats = new WeakMap();
+
+/** Swap lit PBR materials for Lambert (no env map, no clearcoat). MeshBasic (baked lightmaps, rings) stays. */
+export function flattenMaterials(root) {
+  root.traverse((o) => {
+    if (!o.isMesh) return;
+    o.castShadow = false;
+    o.receiveShadow = false;
+    const list = Array.isArray(o.material) ? o.material : [o.material];
+    const next = list.map(ecoMaterial);
+    o.material = Array.isArray(o.material) ? next : next[0];
+  });
+}
+
+function ecoMaterial(m) {
+  if (!m || m.isMeshBasicMaterial || m.isMeshLambertMaterial) return m;
+  let c = ecoMats.get(m);
+  if (c) return c;
+  c = new THREE.MeshLambertMaterial({
+    name: m.name,
+    color: m.color ? m.color.clone() : 0xffffff,
+    map: m.map || null,
+    emissive: m.emissive ? m.emissive.clone() : 0x000000,
+    emissiveIntensity: m.emissiveIntensity || 0,
+    emissiveMap: m.emissiveMap || null,
+    alphaMap: m.alphaMap || null,
+    transparent: !!m.transparent,
+    opacity: m.opacity ?? 1,
+    side: m.side,
+    alphaTest: m.alphaTest || 0,
+    depthWrite: m.depthWrite,
+    depthTest: m.depthTest,
+  });
+  ecoMats.set(m, c);
+  return c;
+}
+
 export const STATUS_COLOR = {
   working: '#34C759', idle: '#A1A1A6', waiting_user: '#FF9F0A', error: '#FF3B30', stuck: '#FF9500', done: '#0A84FF',
 };
@@ -61,6 +99,8 @@ export class Actor {
     shadow.rotation.x = -Math.PI / 2;
     shadow.position.y = 0.006;
     shadow.renderOrder = 1;
+    this.shadow = shadow;
+    if (ctx.lowPower) shadow.visible = false;          // Eco: no contact shadow
     this.pivot.add(shadow);
 
     this.ring = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.5), new THREE.MeshBasicMaterial({ map: ringTexture, transparent: true, depthWrite: false, color: STATUS_COLOR.idle, opacity: 0 }));
@@ -131,6 +171,7 @@ export class Actor {
     this.eyeBase = eyes.map((e) => e.scale.y);
     this.eyePos = eyes.map((e) => e.position.clone());
     this.pickMeshes = [];
+    if (this.ctx.lowPower) flattenMaterials(model);
     model.traverse((o) => { if (o.isMesh) { o.userData.actorId = this.id; this.pickMeshes.push(o); if (!this.retiring) this.ctx.pickables.add(o); } });
     this.placeholder = placeholder;
   }
@@ -207,6 +248,7 @@ export class Actor {
     this.root.position.copy(spot.pos);
     this.baseYaw = spot.yaw;
     this.yawS.snap(spot.yaw + RESTING_TURN);
+    if (this.ctx.lowPower) { this.scaleS.snap(1); this.anim = null; return; }
     this.anim = { kind: 'drop', t: -(this.ctx.dropDelay || 0), dur: 0.75, from: 2.4 };
     this.scaleS.snap(this.ctx.dropDelay > 0 ? 0.001 : 1);
     if (this.ctx.dropDelay > 0) this.scaleS.to(1, this.ctx.dropDelay);
@@ -215,19 +257,25 @@ export class Actor {
   travelTo(spot) {
     const from = this.root.position.clone();
     const dist = from.distanceTo(spot.pos);
-    if (REDUCED || dist < 0.05) { this.root.position.copy(spot.pos); this.baseYaw = spot.yaw; return; }
+    if (this.ctx.lowPower || REDUCED || dist < 0.05) {
+      this.root.position.copy(spot.pos);
+      this.baseYaw = spot.yaw;
+      this.anim = null;
+      if (this.ctx.lowPower) this.yawS.snap(spot.yaw + RESTING_TURN);
+      return;
+    }
     const dir = new THREE.Vector3().subVectors(spot.pos, from);
     this.anim = { kind: 'travel', t: 0, dur: Math.max(0.8, dist / 2.6), from, to: spot.pos.clone(), toYaw: spot.yaw, travelYaw: Math.atan2(dir.x, dir.z) };
   }
 
   hop(height) {
-    if (REDUCED || this.anim || this.retiring) return;
+    if (this.ctx.lowPower || REDUCED || this.anim || this.retiring) return;
     this.anim = { kind: 'hop', t: 0, dur: 0.62, h: height };
   }
 
   /** a task is done: a soft flash around the bot, one ripple on the floor, happy squinting eyes */
   celebrate() {
-    if (REDUCED || this.retiring) return;
+    if (this.ctx.lowPower || REDUCED || this.retiring) return;
     this.endCelebration();
     const color = new THREE.Color(STATUS_COLOR.done);
     const ripple = new THREE.Mesh(RIPPLE_GEO, new THREE.MeshBasicMaterial({ map: rippleTexture, color, transparent: true, depthWrite: false, opacity: 0 }));
@@ -261,7 +309,70 @@ export class Actor {
     f.halo.material.opacity = 0.6 * Math.sin(Math.PI * fk);
   }
 
+  // Eco: no idle breathe, desk bob, sway, shake, blink, ring pulse, or walk cycle.
+  // A spot or status change snaps into place. Look and the retire shrink still ride springs, then stop.
+  tickEco(dt) {
+    if (this.anim) {
+      const a = this.anim;
+      if (a.kind === 'travel') { this.root.position.copy(a.to); this.baseYaw = a.toYaw; }
+      else if (a.kind === 'drop') this.scaleS.snap(1);
+      this.anim = null;
+    }
+    if (this.fx) this.endCelebration();
+
+    const s = this.status;
+    const cur = this.ctx.cursor;
+    let w = 0, lookYaw = 0;
+    if (cur?.active && !this.retiring && this.hostAlpha > 0.6) {
+      const dx = cur.x - this.root.position.x, dz = cur.z - this.root.position.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist < LOOK_RANGE) { w = smoothstep(LOOK_RANGE, LOOK_RANGE - 1.3, dist); lookYaw = Math.atan2(dx, dz); }
+    }
+    const base = (this.baseYaw || 0) + RESTING_TURN;
+    let target = base;
+    if (this.hovered || this.selected) target = CAMERA_YAW;
+    else if (w > 0) {
+      const seated = !this.spotIsLounge() && s !== 'idle';
+      const lim = seated ? 0.8 : 1.9;
+      target = base + clamp(angleDiff(lookYaw, base), -lim, lim) * w;
+    }
+    this.yawS.target = this.yawS.x + angleDiff(target, this.yawS.x);
+    this.yawS.step(dt);
+    const sel = this.selected ? 1.06 : 1;
+    const sc = this.scaleS.step(dt);
+    const p = this.pivot;
+    p.position.set(0, 0, 0);
+    p.scale.set(sel * sc, sel * sc, sel * sc);
+    p.rotation.set(0, this.yawS.x, 0, 'YXZ');
+
+    if (w > 0 && !this.hovered && !this.selected) {
+      const ang = angleDiff(lookYaw, this.yawS.x);
+      this.eyeX.to(Math.sin(clamp(ang, -1.2, 1.2)) * EYE_SHIFT * w);
+      this.eyeY.to(-0.012 * w);
+    } else { this.eyeX.to(0); this.eyeY.to(0); }
+    this.eyeX.step(dt); this.eyeY.step(dt);
+
+    const mark = s === 'working' ? 0.16 : s === 'waiting_user' || s === 'error' ? 0.45 : s === 'stuck' ? 0.3 : 0;
+    const wantRing = this.selected ? 0.8 : this.hovered ? Math.max(0.4, mark) : mark;
+    this.ring.material.opacity = wantRing * clamp(sc, 0, 1);
+    this.ring.scale.setScalar(this.selected ? 1.12 : 1);
+    this.tag.visible = this.tagEl.dataset.mode !== 'off' && this.hostAlpha > 0.5 && !this.retiring && this.scaleS.x > 0.6;
+    this.poseEyes(s === 'idle' && !this.spotIsLounge() ? 0.12 : s === 'error' ? 0.55 : s === 'stuck' ? 0.7 : 1);
+    if (this.retiring && this.scaleS.x < 0.03) { this.dead = true; this.dispose(); }
+  }
+
+  poseEyes(open) {
+    if (!this.eyes?.length) return;
+    const k = 1 / this.modelScale;
+    this.eyes.forEach((e, i) => {
+      e.scale.y = this.eyeBase[i] * open;
+      e.position.x = this.eyePos[i].x + this.eyeX.x * k;
+      e.position.y = this.eyePos[i].y + this.eyeY.x * k;
+    });
+  }
+
   tick(dt, t) {
+    if (this.ctx.lowPower) return this.tickEco(dt);
     const p = this.pivot;
     const s = this.status;
     let y = 0, sx = 1, sy = 1, rx = 0, rz = 0, ox = 0;
