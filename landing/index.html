@@ -13,12 +13,11 @@ addEventListener('hashchange', toOffice);                  // the link pasted in
 <title>Grok Bot Wallpaper</title>
 <meta name="description" content="A live wallpaper that keeps an eye on your cursor and on your bots. Free for Windows with Lively Wallpaper; Mac app coming soon.">
 <meta name="theme-color" content="#FFFFFF">
+<meta name="referrer" content="no-referrer">
 <meta property="og:type" content="website">
-<link rel="canonical" href="https://0xcodila.com/grokbot-wallpaper/">
-<meta property="og:url" content="https://0xcodila.com/grokbot-wallpaper/">
 <meta property="og:title" content="Grok Bot Wallpaper">
 <meta property="og:description" content="A live wallpaper that keeps an eye on your cursor and on your bots.">
-<meta property="og:image" content="https://0xcodila.com/grokbot-wallpaper/og.png">
+<meta property="og:image" content="og.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
@@ -28,7 +27,7 @@ addEventListener('hashchange', toOffice);                  // the link pasted in
 <style>
 /* One rounded stage holds the live bot; below it the features and the install steps are tiles of one family (one
    radius, one gap, copy at the top of each). Colours are the wallpaper's own: its studio white, the graphite of its
-   cards, the light text on them. Type is Host Grotesk, the face of 0xcodila.com. */
+   cards, the light text on them. Type is Host Grotesk, shipped with this page. */
 @font-face {
   font-family: 'Host Grotesk Variable';
   font-style: normal;
@@ -561,7 +560,7 @@ footer .links { display: flex; flex-wrap: wrap; gap: 6px 24px; }
                 <span class="pick__thumb" aria-hidden="true"></span>
               </div></div>
             <div class="actions">
-              <p class="link__url" id="wall-url"><span>https://</span>bodila51.github.io/<wbr><b class="nb">grokbot-wallpaper/face/</b><wbr><span class="suffix" data-suffix="?"></span></p>
+              <p class="link__url" id="wall-url"><span id="wall-base">face/</span><span class="suffix" data-suffix="?"></span></p>
               <button class="btn btn--light copy" type="button" id="copy"><span aria-live="polite">Copy link</span></button>
             </div>
           </div>
@@ -631,7 +630,7 @@ footer .links { display: flex; flex-wrap: wrap; gap: 6px 24px; }
               <pre class="code code--link" id="wall-link" hidden></pre>
             </div>
           </div>
-          <p class="connect__fine">Your topic works like a password: keep it to yourself. Status lines go through ntfy.sh and stay there for 12 hours. Running your own Bot HQ server instead? <a href="https://github.com/Bodila51/grokbot-wallpaper#readme" target="_blank" rel="noopener">Read the setup on GitHub</a>.</p>
+          <p class="connect__fine">Your topic works like a password: keep it to yourself. Status lines go to the feed server in your link (ntfy.sh unless you set <code>&amp;ntfy=</code>) and stay there for 12 hours. A self-hosted ntfy can take an access token as <code>&amp;auth=</code> in that same fragment. Running the journal server instead? The steps are in README-server.md in this repository.</p>
         </div>
       </div>
     </div>
@@ -745,7 +744,8 @@ document.querySelectorAll('[data-fullscreen]').forEach((a) => a.addEventListener
 }));
 
 // Copy link: the label blurs into "Copied" and back, so the change reads as one button changing its mind.
-const LINK = 'https://bodila51.github.io/grokbot-wallpaper/face/';
+const LINK = new URL('face/', location.href).href;
+document.getElementById('wall-base').textContent = LINK;
 const calm = matchMedia('(prefers-reduced-motion: reduce)');
 function relabel(label, text) {
   if (calm.matches || !label.animate) { label.textContent = text; return; }
@@ -818,7 +818,7 @@ fetch('PROMPT.md', { cache: 'no-cache' }).then((r) => (r.ok ? r.text() : Promise
   promptBox.textContent = (fenced ? fenced[1] : md).trim();
   document.querySelector('[data-copy="prompt"]').disabled = false;
 }).catch(() => {
-  promptBox.innerHTML = 'The prompt did not load. <a href="https://github.com/Bodila51/grokbot-wallpaper/blob/main/PROMPT.md" target="_blank" rel="noopener">Open it on GitHub</a>.';
+  promptBox.textContent = 'The prompt did not load. It is PROMPT.md next to this page.';
 });
 document.querySelectorAll('#own [data-copy]').forEach((btn) => btn.addEventListener('click', () => {
   const box = document.getElementById(btn.dataset.copy);
@@ -829,24 +829,38 @@ const KEY = 'gbw.landing-feed';
 const dash = document.getElementById('dash'), topicIn = document.getElementById('topic'), seen = document.getElementById('seen');
 const openOffice = document.getElementById('open-office'), openWall = document.getElementById('open-wall');
 const wallLink = document.getElementById('wall-link'), copyWall = document.querySelector('[data-copy="wall-link"]');
-let topic = null, ntfy = null, polling = null;
+let topic = null, ntfy = null, auth = '', polling = null;
 const findTopic = (text) => (String(text).match(/gbw-[A-Za-z0-9_-]{6,}/) || [])[0] || null;
-// A self-hosted ntfy rides along as &ntfy=<https server> after the topic; anything else is ignored.
-function findServer(text) {
-  const m = String(text).match(/[#&?]ntfy=([^&\s#]+)/);
-  if (!m) return null;
-  try { const u = new URL(decodeURIComponent(m[1])); return u.protocol === 'https:' ? u.origin + u.pathname.replace(/\/+$/, '') : null; } catch { return null; }
+// A self-hosted ntfy rides along as &ntfy=<https server> after the topic. The access token is &auth= in the fragment.
+function hashOf(text) {
+  const s = String(text);
+  const i = s.indexOf('#');
+  if (i !== -1) return s.slice(i);
+  const topic = findTopic(s);
+  if (!topic) return '';
+  const ntfy = s.match(/(?:^|[#&?])ntfy=([^&\s#]+)/);
+  const token = s.match(/(?:^|[#&?])auth=([^&\s#]+)/);
+  if (!ntfy && !token) return `#${topic}`;
+  return `#${topic}${ntfy ? `&ntfy=${ntfy[1]}` : ''}${token ? `&auth=${token[1]}` : ''}`;
 }
 // The topic goes after # (a hash never reaches the site's server); the bot colour is no secret and stays ?bot=black.
 function links() {
-  const extra = ntfy ? `&ntfy=${encodeURIComponent(ntfy)}` : '', bot = botColor === 'black' ? '?bot=black' : '';
+  let extra = '';
+  if (ntfy) extra += `&ntfy=${encodeURIComponent(ntfy)}`;
+  if (auth) extra += `&auth=${encodeURIComponent(auth)}`;
+  const bot = botColor === 'black' ? '?bot=black' : '';
   openOffice.href = `office/#${topic}${extra}`;
   openWall.href = `face/${bot}#${topic}${extra}`;
   wallLink.textContent = `${LINK}${bot}#${topic}${extra}`;
 }
 async function count(started) {
   try {
-    const res = await fetch(`${ntfy || 'https://ntfy.sh'}/${topic}/json?poll=1&since=12h`, { cache: 'no-store' });
+    let url = `${ntfy || 'https://ntfy.sh'}/${encodeURIComponent(topic)}/json?poll=1&since=12h`;
+    if (auth) {
+      const { ntfyAuthUrl } = await import('./lib/feed-url.js');
+      url = ntfyAuthUrl(url, auth);
+    }
+    const res = await fetch(url, { cache: 'no-store', referrerPolicy: 'no-referrer' });
     if (!res.ok) throw new Error(res.status);
     const bots = new Set();
     for (const line of (await res.text()).split('\n')) {
@@ -871,10 +885,11 @@ async function count(started) {
   }
   if (Date.now() - started > 300000) { clearInterval(polling); polling = null; }   // five minutes, then quiet
 }
-function useTopic(next, server = null) {
-  if (next === topic && server === ntfy) return;
+function useTopic(next, server = null, token = '') {
+  if (next === topic && server === ntfy && token === auth) return;
   topic = next;
   ntfy = next ? server : null;
+  auth = next ? (token || '') : '';
   clearInterval(polling); polling = null;
   const on = Boolean(topic);
   dash.dataset.state = on ? 'ready' : 'empty';
@@ -883,18 +898,41 @@ function useTopic(next, server = null) {
   wallLink.hidden = !on;
   delete seen.dataset.ok;
   if (!on) { seen.textContent = topicIn.value.trim() ? 'That has no topic in it: look for the part that starts with gbw-.' : ''; return; }
-  try { localStorage.setItem(KEY, topic); if (ntfy) localStorage.setItem(KEY + '.ntfy', ntfy); else localStorage.removeItem(KEY + '.ntfy'); } catch {}
+  try {
+    localStorage.setItem(KEY, topic);
+    if (ntfy) localStorage.setItem(KEY + '.ntfy', ntfy); else localStorage.removeItem(KEY + '.ntfy');
+    if (auth) localStorage.setItem(KEY + '.auth', auth); else localStorage.removeItem(KEY + '.auth');
+  } catch {}
   links();
   seen.textContent = 'Looking for your bots…';
   const started = Date.now();
   count(started);
   polling = setInterval(() => count(started), 5000);
 }
-topicIn.addEventListener('input', () => useTopic(findTopic(topicIn.value), findServer(topicIn.value)));
+topicIn.addEventListener('input', async () => {
+  const text = topicIn.value;
+  const hash = hashOf(text);
+  if (hash) {
+    try {
+      const { parseFeedHash } = await import('./lib/feed-url.js');
+      const spec = parseFeedHash(hash);
+      if (spec) { useTopic(spec.topic, spec.explicitServer ? spec.server : null, spec.auth); return; }
+    } catch { /* the checker still accepts a bare topic */ }
+    if (/(?:ntfy|auth)=/.test(hash)) {
+      useTopic(null);
+      seen.textContent = 'That link names a server or a token this page will not use. Check both and try again.';
+      return;
+    }
+  }
+  useTopic(findTopic(text), null, '');
+});
 document.addEventListener('bot-color', () => { if (topic) links(); });
 try {
-  const kept = localStorage.getItem(KEY), server = localStorage.getItem(KEY + '.ntfy');
-  if (kept && findTopic(kept) === kept) { topicIn.value = kept + (server ? `&ntfy=${encodeURIComponent(server)}` : ''); useTopic(kept, findServer(topicIn.value)); }
+  const kept = localStorage.getItem(KEY), server = localStorage.getItem(KEY + '.ntfy'), token = localStorage.getItem(KEY + '.auth');
+  if (kept && findTopic(kept) === kept) {
+    topicIn.value = kept + (server ? `&ntfy=${encodeURIComponent(server)}` : '') + (token ? `&auth=${encodeURIComponent(token)}` : '');
+    useTopic(kept, server, token || '');
+  }
 } catch {}
 
 // The desktop recording plays while it is on screen and pauses off it. With reduced motion it waits with its controls.

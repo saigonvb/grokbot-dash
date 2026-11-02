@@ -8,17 +8,17 @@ Work in progress.
 
 ## Your own bots (no server)
 
-You do not need to run anything to see your own bots. They post their status to a private channel on our relay (`relay.0xcodila.com`, see `relay/`) or, if they were set up with the first prompt, on ntfy.sh. The dashboard reads both and merges them.
+You do not need to run anything to see your own bots. They post their status to a channel on [ntfy](https://ntfy.sh) (or on an ntfy server you run). The dashboard reads that one server. It does not contact any other host with the topic.
 
 ### How it works
 
-Each bot runs one `curl` on its own box whenever its status changes and sends a short JSON line to `https://ntfy.sh/<topic>`. The dashboard and the wallpaper are static pages on GitHub Pages: your browser reads that channel straight from ntfy.sh (the last 12 hours, then live) and draws the office. There is no server and no tunnel, and nothing connects in to the bots' box: they only make outbound HTTPS calls.
+Each bot runs one `curl` on its own box whenever its status changes and sends a short JSON line to `https://ntfy.sh/<topic>`. The dashboard and the wallpaper are static pages: your browser reads that channel straight from the feed server (the last 12 hours, then live) and draws the office. There is no server and no tunnel in this mode, and nothing connects in to the bots' box: they only make outbound HTTPS calls.
 
 ### Setup
 
 1. Copy the block from `PROMPT.md` and paste it into your Grok Bot once. It makes the topic (`gbw-` plus 22 random letters and digits), saves the posting rule in the shared memory of all your bots, posts the roster and a look for each bot, and sets up the daily and 2-hourly routines.
-2. The bot replies with two links. Open the dashboard in a browser: `https://bodila51.github.io/grokbot-wallpaper/#<topic>`.
-3. For the wallpaper, use the second link as a web wallpaper in Lively (Windows, `lively/README.md`) or the Mac app (`mac/README.md`): `https://bodila51.github.io/grokbot-wallpaper/face/#<topic>`.
+2. The bot replies with a path, `office/#<topic>`. Open that path on the site where you host this dashboard.
+3. For the wallpaper, open `face/#<topic>` on the same site. Lively (Windows, `lively/README.md`) and the Mac app (`mac/README.md`) take that page's full address.
 
 ### The line formats
 
@@ -40,19 +40,27 @@ One JSON object per POST, at most 4 KB.
 
 ### Privacy
 
-- The topic is the password. Anyone who has it can read your bots' statuses and post fake ones, so do not share the links. The dashboard link keeps the topic after the `#`, which the browser never sends to GitHub Pages; the wallpaper link carries it as `?feed=`, so treat that one as more exposed.
+- The topic is the password. Anyone who has it can read your bots' statuses and post fake ones, so do not share the links. Keep the topic after the `#`. The browser does not send the fragment to the site that hosts the dashboard. An older wallpaper link puts it in `?feed=`, and that query is sent to the host, so prefer the fragment.
 - ntfy is not encrypted end to end: the ntfy server can read every line. Keep secrets and personal data out of `step`.
 - ntfy.sh keeps messages for 12 hours. The dashboard caches the last state in your browser, so it still shows your bots after that; clear the site data to remove it.
 - To change the topic, ask your bot to make a new one and run the setup again.
-- The dashboard sends one anonymous count per visit to the relay: a hash of the topic (never the topic), how many bots and teams, which parts of the setup it shows, phone or desktop, and how long it stayed open. No topic, IP address or user agent is stored.
+- The page does not send the topic, the token, or the feed to any host other than the feed server named in the link.
 
 ### Limits
 
-The relay has no per-IP daily cap for normal use; it runs on Cloudflare's Workers plan (`relay/README.md` has the numbers). Bots set up with the first prompt can move to it with the message in `relay/UPGRADE.md`.
-
 The free ntfy.sh tier allows 250 messages a day per IP address. Every status change is one message, so about 50 or more bots (or a few very busy ones) need a paid ntfy plan or your own ntfy server.
 
-For your own server, add `&ntfy=https://your.server` to the dashboard link (`#<topic>&ntfy=https://your.server`), or to the wallpaper link (`?feed=<topic>&ntfy=https://your.server`). Tell the bots to post to that server instead of `https://ntfy.sh`. The server needs HTTPS and must be reachable from both the bots' box and your browser.
+For your own server, put it in the fragment, not the query string:
+
+`#<topic>&ntfy=https://your.server`
+
+A protected topic also takes the ntfy access token there. The token is sent only to that server, as ntfy's `auth` query value (base64 of `Bearer <token>`), because the live stream cannot set an Authorization header:
+
+`#<topic>&ntfy=https://your.server&auth=<token>`
+
+`http://` is accepted only for `localhost`, `127.0.0.1`, and `::1`. Tell the bots to post to that server instead of `https://ntfy.sh`. The server needs to be reachable from both the bots' box and your browser, and it must allow the page's origin to read the topic (ntfy's CORS headers do this).
+
+`relay/` is an optional mailbox you can run yourself. The dashboard does not call it unless `&ntfy=` names it.
 
 ### Troubleshooting
 

@@ -94,7 +94,16 @@ export function normLook(v) {
   if (!shape && !color) return null;
   return { shape, color, accessory };
 }
-const BAD_SCHEME = /^\s*(javascript|data|vbscript|file):/i;
+/** Chat links the UI may navigate to: https pages, or a grokbot:// app link. Anything else is dropped. */
+export function safeChatUrl(raw) {
+  if (typeof raw !== 'string') return null;
+  const s = raw.trim();
+  if (!s || /[\u0000-\u001f\u007f\s]/.test(s)) return null;
+  let u;
+  try { u = new URL(s); } catch { return null; }
+  if ((u.protocol === 'https:' || u.protocol === 'grokbot:') && u.hostname) return u.href;
+  return null;
+}
 
 function normBotsCfg(obj) {
   const map = new Map();
@@ -103,7 +112,8 @@ function normBotsCfg(obj) {
     if (!v || typeof v !== 'object') continue;
     const e = {};
     if (typeof v.floor === 'string' && v.floor.trim()) e.floor = v.floor.trim();
-    if (typeof v.chat_url === 'string' && v.chat_url.trim() && !BAD_SCHEME.test(v.chat_url)) e.chat_url = v.chat_url.trim();
+    const chat = safeChatUrl(v.chat_url);
+    if (chat) e.chat_url = chat;
     if (typeof v.avatar === 'string' && /^[\w.-]{1,64}$/.test(v.avatar)) e.avatar = v.avatar;
     if (typeof v.color === 'string' && HEX.test(v.color.trim())) e.color = v.color.trim().toUpperCase();
     const look = normLook(v.look);

@@ -1,6 +1,6 @@
 // Assembles the public Grok Bot Wallpaper site into one folder: the landing page at its root, the live wallpaper at
 // face/ and the 3D office at office/, with their demo data and the assets both load from ../assets/. The same tree
-// goes to GitHub Pages (.github/workflows/pages.yml) and to https://0xcodila.com/grokbot-wallpaper/
+// goes to GitHub Pages (.github/workflows/pages.yml).
 // (rea-home/scripts/deploy.mjs). Only these files go out: no journal, keys, source art, test pages or preview renders.
 // A new file the site needs is added here, once, for both sites.
 //   node landing/assemble.mjs <out-dir>
@@ -20,6 +20,8 @@ const parts = [
   // the 3D office: its page and modules (no *.html test pages), its demo data
   ['web', 'office', /^(index\.html|app\.js|styles\.css|wallpaper\.js|feed\.js)$/],
   ['web/lib', 'office/lib', /\.(js|css|json)$/, { deep: true, optional: true }],
+  // the wallpaper (face/) resolves ../lib/feed-url.js; the office copy lands in office/lib with the rest of web/lib
+  ['web/lib', 'lib', /^feed-url\.js$/],
   ['web/scene', 'office/scene', /\.(js|css)$/],
   ['web/ui', 'office/ui', /\.(js|css)$/],
   ['web/audio', 'office/audio', /\.(js|m4a)$/],

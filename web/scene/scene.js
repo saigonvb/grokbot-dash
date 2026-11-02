@@ -14,8 +14,8 @@ import { generateBlob } from './blobgen.js';
 import { Spring, clamp } from './spring.js';
 import { sofiaHour, fontsPromise } from './walls.js';
 
-// Relative to the page (not the site root), so the office also works when it is published in a sub-folder, e.g.
-// https://bodila51.github.io/grokbot-wallpaper/office/ -> ../assets. Locally the page is at `/`, where this is /assets.
+// Relative to the page (not the site root), so the office also works when it is published in a sub-folder
+// (…/office/ -> ../assets). Locally the page is at `/`, where this is /assets.
 const ASSETS = '../assets';
 const ISO_DIR = new THREE.Vector3(1, 1, 1).normalize();
 const HOME = { x: -0.4, y: -0.3, z: 0.3 };             // camera target relative to the active floor's surface
@@ -134,18 +134,13 @@ export function initScene(el, cbs = {}) {
   });
 }
 
-// The page may not load Inter / scene.css itself (older index.html): make sure both are there.
+// The page may not load scene.css itself (older index.html): make sure it is there.
+// Type falls back to the system fonts named in scene.css. No remote font stylesheet.
 function ensureAssets() {
   if (!document.querySelector('link[href*="scene.css"]')) {
     const l = document.createElement('link');
     l.rel = 'stylesheet';
     l.href = new URL('./scene.css', import.meta.url).href;
-    document.head.append(l);
-  }
-  if (!document.querySelector('link[href*="family=Inter"]')) {
-    const l = document.createElement('link');
-    l.rel = 'stylesheet';
-    l.href = 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;650;700&display=swap';
     document.head.append(l);
   }
 }

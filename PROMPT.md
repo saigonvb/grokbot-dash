@@ -5,7 +5,7 @@ Paste this into your Grok Bot once. It connects all your bots to a live 3D dashb
 I'd like to set up a small status feed for all my bots, so I can watch them on a dashboard. It uses ntfy, a free notification service, over plain HTTPS with curl. Please do these steps in order.
 
 1. Run this once. It prints three lines: remember the first as TOPIC, the second as FEED (the feed address) and the third as LINK (my dashboard). Use them in every step below:
-python3 -c "import secrets,string;t='gbw-'+''.join(secrets.choice(string.ascii_letters+string.digits) for _ in range(22));print(t);print('https:'+'//'+'ntfy'+'.sh/'+t);print('https:'+'//'+'bodila51.github'+'.io/grokbot-wallpaper/office/'+chr(35)+t)"
+python3 -c "import secrets,string;t='gbw-'+''.join(secrets.choice(string.ascii_letters+string.digits) for _ in range(22));print(t);print('https:'+'//'+'ntfy'+'.sh/'+t);print('office/'+chr(35)+t)"
 
 2. Save the rule below in my shared user memory (the shared profile that all my bots see), with the real FEED address written in. Save it as three separate short facts, each under 400 characters, so none gets cut. If the shared memory already has an older rule about posting statuses to ntfy, delete it, or mark it as replaced by this one.
 Fact A: On every status change (you start a task, finish it, need me, hit an error, go idle), run: curl -s -d '{"bot":"<your exact name>","status":"working|idle|waiting_user|error|done","step":"<what you are doing>"}' FEED
@@ -34,5 +34,5 @@ curl -s -d '{"type":"usage","total_used_pct":37,"resets_at":"<ISO time>","bots":
 
 8. Post one test status line for yourself, your own routines line, and one usage line now (as in step 7), so the dashboard shows the limit right away.
 
-9. Reply with LINK first, and one sentence saying it works like a password, so I should not share it. Then, only if something did not work, add a short list of the problems. Reply in the language I usually write to you in. Do not post any other secret to the channel or in your reply.
+9. Reply with LINK first. Say that LINK is a path on the site where I host this dashboard (the same site I copied this prompt from): open office/ and then the fragment, for example office/#TOPIC. Say that the topic works like a password, so I should not share it. Then, only if something did not work, add a short list of the problems. Reply in the language I usually write to you in. Do not post any other secret to the channel or in your reply.
 ```

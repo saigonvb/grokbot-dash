@@ -1,5 +1,7 @@
 # web/feed.js: read ntfy.sh and the relay together
 
+Do not apply this patch. It makes the dashboard read an upstream relay and post a usage beacon. In this fork `web/feed.js` reads only the server named in the link (`#topic`, optional `&ntfy=` and `&auth=`).
+
 For the main session to apply; this folder does not change `web/feed.js` itself.
 
 ```bash

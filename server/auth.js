@@ -185,9 +185,6 @@ export function loginPage({ error = '', next = '/' } = {}) {
 <meta name="color-scheme" content="light">
 <meta name="robots" content="noindex">
 <title>Grok Bot Wallpaper — вход</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;800&display=swap" rel="stylesheet">
 <style>
 :root{--bg:#F6F1EA;--paper:#FFFFFF;--ink:#141414;--muted:#6E6A64;--line:#E7E0D6;--shade:#EFE8DE;--error:#EF4444;--working:#22C55E;
   --shadow:0 1px 2px rgba(20,20,20,.06),0 8px 24px rgba(20,20,20,.06)}

@@ -9,7 +9,7 @@
  * The office is white now, so the shadows are softer and shorter than on the dark wallpaper, and nothing here depends
  * on the day/night glass tokens of web/styles.css: the cards are graphite at every hour (only --gutter and --panel-w
  * are read from there, each with a fallback; the container positions stay in styles.css).
- * Fonts are NOT imported here: the page links Nunito 700..900 from Google Fonts.
+ * Fonts are not imported here. The stack names Nunito, then the system UI font.
  * Every class is prefixed "bhq-".
  */
 
